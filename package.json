@@ -1,0 +1,62 @@
+{
+  "name": "opentutor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --env-file-if-exists=.env scripts/dev.ts",
+    "web": "next dev --hostname 127.0.0.1",
+    "worker": "tsx --env-file-if-exists=.env src/worker/index.ts",
+    "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "playwright test",
+    "infra:up": "docker compose up -d",
+    "speech:setup": "uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt"
+  },
+  "dependencies": {
+    "@jitl/quickjs-singlefile-browser-release-sync": "0.32.0",
+    "@noble/hashes": "2.0.1",
+    "@openai/codex-sdk": "0.162.0",
+    "@remotion/bundler": "4.0.534",
+    "@remotion/player": "4.0.534",
+    "@remotion/renderer": "4.0.534",
+    "@xmldom/xmldom": "0.9.12",
+    "acorn": "8.19.0",
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.0.0",
+    "katex": "^0.19.0",
+    "lucide-react": "^0.577.0",
+    "mdast-util-to-string": "^4.0.0",
+    "next": "16.4.0",
+    "pg": "^8.0.0",
+    "quickjs-emscripten-core": "0.32.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "^10.0.0",
+    "rehype-katex": "^7.0.0",
+    "remark-gfm": "^4.0.0",
+    "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "remotion": "4.0.534",
+    "sharp": "0.35.5",
+    "unified": "^11.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.0.0",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.3"
+  },
+  "overrides": {
+    "katex": "$katex"
+  }
+}
