@@ -2,17 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { loadCustomRuntime, renderCustomFrame, validateSvg } from '../src/video/custom-runtime';
 import { validateCustomCode } from '../src/shared/custom';
 import { resolvePalette, stylePresets } from '../src/shared/visual-style';
-import { componentCatalog, catalogLesson, waveComponentCode } from '../src/video/catalog';
+import { componentCatalog, catalogLesson, waveComponentCode, type ComponentExample } from '../src/video/catalog';
 import { validateCustomLesson } from '../src/engine/custom-validation';
+import { getMotionCueStates, resolveMotionCues } from '../src/shared/motion';
 
 const frame = { frame: 30, fps: 30, width: 1104, height: 286, progress: 0.5, theme: resolvePalette('sage') };
+const wave = componentCatalog.find(sample => sample.id === 'custom-wave')!;
+function sampleFrame(sample: ComponentExample, sceneFrame: number) {
+  const scene = sample.plan.scenes[0];
+  const motion = scene.scene.objects[0].motion!;
+  return { fps: sample.plan.fps, width: 1104, height: 286, theme: resolvePalette(sample.plan.theme), cues: getMotionCueStates(resolveMotionCues(motion, scene.utterances, sample.plan.fps), sceneFrame) };
+}
 describe('isolated dynamic teaching components', () => {
   it('draws deterministic frames when seeking backwards', async () => {
     const runtime = await loadCustomRuntime();
-    const first = renderCustomFrame(runtime, waveComponentCode, frame);
-    const later = renderCustomFrame(runtime, waveComponentCode, { ...frame, frame: 90 });
+    const first = renderCustomFrame(runtime, waveComponentCode, sampleFrame(wave, 30));
+    const later = renderCustomFrame(runtime, waveComponentCode, sampleFrame(wave, 90));
     expect(later).not.toBe(first);
-    expect(renderCustomFrame(runtime, waveComponentCode, frame)).toBe(first);
+    expect(renderCustomFrame(runtime, waveComponentCode, sampleFrame(wave, 30))).toBe(first);
   });
   it('does not expose Node, browser, network, or host time APIs', async () => {
     const runtime = await loadCustomRuntime();
@@ -23,12 +30,12 @@ describe('isolated dynamic teaching components', () => {
   it('interrupts infinite loops and survives the failed component', async () => {
     const runtime = await loadCustomRuntime();
     expect(() => renderCustomFrame(runtime, 'while(true) {}', frame)).toThrow(/interrupted|执行失败/);
-    expect(renderCustomFrame(runtime, waveComponentCode, frame)).toContain('<polyline');
+    expect(renderCustomFrame(runtime, waveComponentCode, sampleFrame(wave, 30))).toContain('<polyline');
   });
   it('limits guest allocation without leaking state to subsequent frames', async () => {
     const runtime = await loadCustomRuntime();
     expect(() => renderCustomFrame(runtime, 'const data=[]; while(true) data.push(new Array(10000).fill(1));', frame)).toThrow();
-    expect(renderCustomFrame(runtime, waveComponentCode, frame)).toContain('<svg');
+    expect(renderCustomFrame(runtime, waveComponentCode, sampleFrame(wave, 30))).toContain('<svg');
   });
   it('rejects active markup, external resources, CSS and clock-based animation', () => {
     for (const content of ['<script>alert(1)</script>', '<rect onclick="alert(1)"/>', '<foreignObject/>', '<image href="https://example.com/a.png"/>', '<rect fill="url(https://example.com/a)"/>', '<animate attributeName="x"/>', '<rect style="fill:red"/>']) {
@@ -65,9 +72,23 @@ describe('isolated dynamic teaching components', () => {
     expect(() => renderCustomFrame(runtime, 'return "x".repeat(100001)', frame)).toThrow(/太大/);
   });
   it('preflights all creative examples at multiple frames', async () => {
+    expect(componentCatalog).toHaveLength(12);
     for (const sample of componentCatalog.filter(item => item.kind === 'creative')) expect(await validateCustomLesson(catalogLesson(sample))).toEqual([]);
     expect(new Set(componentCatalog.map(item => item.plan.scenes[0].scene.layout)).size).toBe(6);
     expect(new Set(componentCatalog.flatMap(item => item.plan.scenes[0].scene.objects.map(object => object.type))).size).toBe(7);
+  });
+  it('binds every creative catalog animation to its demo narration and holds before and after the cue', async () => {
+    const runtime = await loadCustomRuntime();
+    const examples = componentCatalog.filter(item => item.kind === 'creative');
+    expect(examples).toHaveLength(3);
+    for (const sample of examples) {
+      const object = sample.plan.scenes[0].scene.objects[0];
+      expect(object.motion).toEqual({ version: 'narration-v1', cues: [{ id: 'demo', utteranceId: 'demo-narration' }] });
+      const draw = (sceneFrame: number) => renderCustomFrame(runtime, object.content, sampleFrame(sample, sceneFrame));
+      expect(draw(-1)).toBe(draw(0));
+      expect(draw(60)).not.toBe(draw(0));
+      expect(draw(180)).toBe(draw(360));
+    }
   });
   it('preserves valid presets and corrects unreadable generated colors', () => {
     for (const preset of stylePresets) expect(resolvePalette(preset.id)).toEqual(preset.palette);

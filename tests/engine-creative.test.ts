@@ -11,10 +11,10 @@ import os from 'node:os';
 
 const markdown = '用圆周运动说明运动方向持续变化。';
 const source = parseSource(markdown);
-const drawing = 'const angle=progress*2*Math.PI;const x=width/2+90*Math.cos(angle);const y=height/2+90*Math.sin(angle);return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><circle cx="${width/2}" cy="${height/2}" r="90" fill="none" stroke="${theme.muted}" stroke-width="2"/><circle cx="${x}" cy="${y}" r="16" fill="${theme.accent}"/></svg>`;';
+const drawing = 'const angle=cues.orbit.progress*2*Math.PI;const x=width/2+90*Math.cos(angle);const y=height/2+90*Math.sin(angle);return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><circle cx="${width/2}" cy="${height/2}" r="90" fill="none" stroke="${theme.muted}" stroke-width="2"/><circle cx="${x}" cy="${y}" r="16" fill="${theme.accent}"/></svg>`;';
 const palette = { background: '#101d30', surface: '#152840', text: '#ffffff', muted: '#c0d8ef', accent: '#00ccff' };
 function lesson(content = drawing, type: 'custom' | 'text' = 'custom'): Lesson {
-  return { schemaVersion: '0.1', title: '圆周运动', objectives: ['理解运动方向'], scenes: [{ id: 's1', title: '观察运动方向', chapter: '运动', sourceBlockIds: source.blocks.map(b => b.id), layout: 'content', objects: [{ id: 'o1', type, content, language: type === 'custom' ? 'javascript' : '' }], narration: [{ id: 'u1', text: '观察沿圆周运动的点，运动方向持续变化。', showObjectIds: ['o1'], focusObjectId: 'o1' }] }] };
+  return { schemaVersion: '0.1', title: '圆周运动', objectives: ['理解运动方向'], scenes: [{ id: 's1', title: '观察运动方向', chapter: '运动', sourceBlockIds: source.blocks.map(b => b.id), layout: 'content', objects: [{ id: 'o1', type, content, language: type === 'custom' ? 'javascript' : '', ...(type === 'custom' ? { motion: { version: 'narration-v1', cues: [{ id: 'orbit', utteranceId: 'u1' }] } as const } : {}) }], narration: [{ id: 'u1', text: '观察沿圆周运动的点，运动方向持续变化。', showObjectIds: ['o1'], focusObjectId: 'o1' }] }] };
 }
 
 describe('creative model and actual SVG code generation', () => {

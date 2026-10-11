@@ -3,6 +3,8 @@ import { isNormalizedBox } from './images';
 import { validateCustomCode } from './custom';
 import { videoIntentIds } from './video-intent';
 import type { RenderProgress } from './render-progress';
+import { DIAGRAM_HEIGHT, DIAGRAM_LANGUAGE, validateDiagram } from './diagram';
+import { MotionSchema } from './motion';
 
 export const PaletteSchema = z.object({ background: z.string().regex(/^#[a-fA-F0-9]{6}$/), surface: z.string().regex(/^#[a-fA-F0-9]{6}$/), text: z.string().regex(/^#[a-fA-F0-9]{6}$/), muted: z.string().regex(/^#[a-fA-F0-9]{6}$/), accent: z.string().regex(/^#[a-fA-F0-9]{6}$/) }).strict();
 export type Palette = z.infer<typeof PaletteSchema>;
@@ -36,7 +38,7 @@ export type ImagePresentation = z.infer<typeof ImagePresentationSchema>;
 
 export const ObjectSchema = z.object({
   id: z.string().min(1).max(80), type: z.enum(['text', 'code', 'formula', 'table', 'image', 'diagram', 'custom']),
-  content: z.string().max(12000), language: z.string().max(40), imagePresentation: ImagePresentationSchema.nullable().optional(),
+  content: z.string().max(12000), language: z.string().max(40), imagePresentation: ImagePresentationSchema.nullable().optional(), motion: MotionSchema.nullable().optional(),
 }).strict();
 export const UtteranceSchema = z.object({
   id: z.string().min(1).max(80), text: z.string().min(1).max(2000),
@@ -105,6 +107,23 @@ export function validateLesson(lesson: Lesson, source: SourceDocument, assets: A
     }
     const shown = new Set(scene.narration.flatMap(u => u.showObjectIds));
     for (const o of scene.objects) {
+      if (o.motion) {
+        const parsedMotion = MotionSchema.safeParse(o.motion);
+        if (o.type !== 'custom') issues.push({ code: 'INVALID_MOTION', severity: 'error', sceneId: scene.id, message: `对象 ${o.id}：只有 custom 组件可以声明动作锚点。` });
+        if (!parsedMotion.success) issues.push({ code: 'INVALID_MOTION', severity: 'error', sceneId: scene.id, message: `对象 ${o.id} 的动作锚点无效：${parsedMotion.error.issues.slice(0, 3).map(issue => issue.message).join('；')}` });
+        else {
+          let previousIndex = -1;
+          for (const cue of parsedMotion.data.cues) {
+            const index = scene.narration.findIndex(unit => unit.id === cue.utteranceId);
+            if (index < 0) issues.push({ code: 'INVALID_MOTION', severity: 'error', sceneId: scene.id, message: `动作 ${cue.id} 引用不存在的旁白 ${cue.utteranceId}。` });
+            else {
+              if (index <= previousIndex) issues.push({ code: 'INVALID_MOTION', severity: 'error', sceneId: scene.id, message: `对象 ${o.id} 的动作顺序必须与旁白顺序一致且不能重复。` });
+              if (!scene.narration[index].showObjectIds.includes(o.id)) issues.push({ code: 'INVALID_MOTION', severity: 'error', sceneId: scene.id, message: `动作 ${cue.id} 绑定的旁白 ${cue.utteranceId} 必须在 showObjectIds 中显示组件 ${o.id}。` });
+              previousIndex = index;
+            }
+          }
+        }
+      }
       if (o.type === 'custom') {
         const codeError = validateCustomCode(o.content);
         if (creationMode !== 'creative') issues.push({ code: 'CUSTOM_MODE', severity: 'error', sceneId: scene.id, message: '稳定模式不能执行自定义代码，请选择创意模式或重新生成模板画面。' });
@@ -113,12 +132,18 @@ export function validateLesson(lesson: Lesson, source: SourceDocument, assets: A
       if (!shown.has(o.id)) issues.push({ code: 'HIDDEN_OBJECT', severity: 'error', sceneId: scene.id, message: `对象未在旁白对应画面中显示：${o.id}` });
       if (o.type === 'image' && !assets.some(a => a.id === o.content)) issues.push({ code: 'MISSING_ASSET', severity: 'error', sceneId: scene.id, message: '图片必须引用已上传素材 ID' });
       if (o.type === 'image' && [o.imagePresentation?.region, o.imagePresentation?.highlight].some(box => box && !isNormalizedBox(box))) issues.push({ code: 'INVALID_IMAGE_REGION', severity: 'error', sceneId: scene.id, message: '图片裁剪或高亮区域必须位于原图范围内；无法确定时展示完整图片。' });
-      if (o.type === 'diagram') issues.push({ code: 'DIAGRAM_FALLBACK', severity: 'warning', sceneId: scene.id, message: '图解采用文本或 Markdown 分步表达；未执行专用图形仿真' });
+      if (o.type === 'diagram') {
+        if (o.language === DIAGRAM_LANGUAGE) {
+          const error = validateDiagram(o.content);
+          if (error) issues.push({ code: 'INVALID_DIAGRAM', severity: 'error', sceneId: scene.id, message: error });
+        } else issues.push({ code: 'DIAGRAM_FALLBACK', severity: 'warning', sceneId: scene.id, message: '旧版图解按 Markdown 显示；使用 diagram-json 可生成节点与有向连线图' });
+      }
     }
     const estimatedHeights = scene.objects.map(o => {
       const columns = scene.layout === 'compare' ? 20 : 42;
       const units = (text: string) => [...text].reduce((sum, ch) => sum + (/[^\x00-\x7F]/.test(ch) ? 1 : 0.55), 0);
       if (o.type === 'image' || o.type === 'custom') return 326;
+      if (o.type === 'diagram' && o.language === DIAGRAM_LANGUAGE) return DIAGRAM_HEIGHT + 40;
       if (o.type === 'formula') return 96;
       const lines = o.content.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(units(line) / columns)), 0);
       return 36 + lines * (o.type === 'code' ? 34 : 39);

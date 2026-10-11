@@ -2,11 +2,13 @@ import { newQuickJSWASMModuleFromVariant, type QuickJSWASMModule } from 'quickjs
 import variant from '@jitl/quickjs-singlefile-browser-release-sync';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import type { Palette } from '../shared/schema';
-import { validateCustomCode } from '../shared/custom';
+import { validateCustomCode, validateNarrationCustomCode } from '../shared/custom';
+import type { MotionCueState } from '../shared/motion';
 
 let modulePromise: Promise<QuickJSWASMModule> | undefined;
 export function loadCustomRuntime() { return modulePromise ??= newQuickJSWASMModuleFromVariant(variant); }
-export interface CustomFrame { frame: number; fps: number; width: number; height: number; progress: number; theme: Palette }
+type FrameGeometry = { fps: number; width: number; height: number; theme: Palette };
+export type CustomFrame = FrameGeometry & ({ frame: number; progress: number; cues?: undefined } | { cues: Record<string, MotionCueState>; frame?: never; progress?: never });
 
 const tags = new Set('svg g rect circle ellipse line path polyline polygon text tspan defs linearGradient radialGradient stop clipPath'.split(' '));
 const attributes = new Set('xmlns viewBox width height x y x1 y1 x2 y2 cx cy r rx ry d points fill fill-opacity fill-rule stroke stroke-width stroke-opacity stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset opacity transform font-size font-family font-weight font-style text-anchor dominant-baseline alignment-baseline letter-spacing dx dy id offset stop-color stop-opacity gradientUnits gradientTransform spreadMethod fx fy fr clip-path clipPathUnits preserveAspectRatio vector-effect'.split(' '));
@@ -66,7 +68,7 @@ export function validateSvg(svg: string, idPrefix = ''): string {
 }
 
 export function renderCustomFrame(runtime: QuickJSWASMModule, code: string, input: CustomFrame, idPrefix = ''): string {
-  const syntax = validateCustomCode(code);
+  const syntax = input.cues === undefined ? validateCustomCode(code) : validateNarrationCustomCode(code);
   if (syntax) throw new Error(syntax);
   const vm = runtime.newContext();
   vm.runtime.setMemoryLimit(8 * 1024 * 1024);
@@ -75,8 +77,12 @@ export function renderCustomFrame(runtime: QuickJSWASMModule, code: string, inpu
   let cycles = 0;
   vm.runtime.setInterruptHandler(() => ++cycles > 800 || Date.now() > deadline);
   try {
+    // New components only see clocks anchored to narration. Strip the legacy
+    // clock even if an untyped caller accidentally supplies both contracts.
+    const payload = input.cues === undefined ? input : { fps: input.fps, width: input.width, height: input.height, theme: input.theme, cues: input.cues };
+    const parameters = input.cues === undefined ? 'frame,fps,width,height,progress,theme' : 'fps,width,height,theme,cues';
     // No host objects or functions are injected. Each frame starts with a fresh heap.
-    const result = vm.evalCode(`"use strict";\nObject.defineProperty(globalThis, 'Date', {value: undefined});\nlet __seed = 1729; Math.random = () => ((__seed = (__seed * 1664525 + 1013904223) >>> 0) / 4294967296);\nconst input = ${JSON.stringify(input)};\n(function({frame,fps,width,height,progress,theme}) {\n${code}\n})(input);`, 'component.js');
+    const result = vm.evalCode(`"use strict";\nObject.defineProperty(globalThis, 'Date', {value: undefined});\nlet __seed = 1729; Math.random = () => ((__seed = (__seed * 1664525 + 1013904223) >>> 0) / 4294967296);\nconst input = ${JSON.stringify(payload)};\n(function({${parameters}}) {\n${code}\n})(input);`, 'component.js');
     if (result.error) {
       const value = vm.dump(result.error); result.error.dispose();
       throw new Error(`组件执行失败：${value?.message || 'JavaScript 错误'}`);

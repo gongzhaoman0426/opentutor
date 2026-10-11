@@ -41,3 +41,14 @@ it('keeps old and partial previews audible without playing estimated clips, and 
   expect(html).not.toContain('opacity:0');
   expect(html).toContain('data-premount="30"');
 });
+
+it('draws structured preset diagrams and keeps legacy Markdown diagrams readable', () => {
+  const preview = structuredClone(plan);
+  preview.scenes[0].scene.objects[0] = { id: 'o0', type: 'diagram', language: 'diagram-json', content: JSON.stringify({ nodes: [{ id: 'a', label: '文稿' }, { id: 'b', label: '视频' }], edges: [{ from: 'a', to: 'b', label: '生成' }] }) };
+  preview.scenes[1].scene.objects[0] = { id: 'o1', type: 'diagram', language: '', content: '旧版关系 **依然可读**' };
+  const html = renderToStaticMarkup(React.createElement(LessonVideo, { plan: preview, assets: [] }));
+  expect(html).toContain('data-diagram-node="a"');
+  expect(html).toContain('<polyline');
+  expect(html).not.toContain('&quot;nodes&quot;');
+  expect(html).toContain('旧版关系 <strong>依然可读</strong>');
+});

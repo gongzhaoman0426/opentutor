@@ -30,6 +30,7 @@ describe('general video direction', () => {
     let first = true;
     const runner: JsonRunner = async (prompt, schema, _signal, _event, _images, runOptions) => {
       expect(runOptions?.model).toBe('test-model');
+      expect(prompt).toContain('SELF-CONTAINED VISUALS');
       const overview = prompt.includes('COURSE_DATA=');
       const data = payload(prompt, overview ? 'COURSE_DATA=' : 'LECTURE_DATA=');
       expect(data.settings).toMatchObject({ videoIntent: 'story', creativeBrief: settings.creativeBrief });

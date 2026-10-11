@@ -1,17 +1,22 @@
 import type { Asset, Lesson, RenderPlan, Scene, TeachingObject } from '../shared/schema';
 import catalogImage from './catalog-image.json';
+import { DIAGRAM_LANGUAGE } from '../shared/diagram';
 
-export const waveComponentCode = `const cy = height / 2;
+export const waveComponentCode = `const cue = cues.demo;
+const elapsed = cue.started ? cue.frame / fps : 0;
+const cy = height / 2;
 const points = Array.from({length: 180}, (_, i) => {
   const x = 24 + i * (width - 48) / 179;
-  return x.toFixed(2) + ',' + (cy - Math.sin(i / 18 - frame / fps * 2) * 70).toFixed(2);
+  return x.toFixed(2) + ',' + (cy - Math.sin(i / 18 - elapsed * 2) * 70).toFixed(2);
 }).join(' ');
 return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+width+' '+height+'">'
   + '<line x1="20" y1="'+cy+'" x2="'+(width-20)+'" y2="'+cy+'" stroke="'+theme.muted+'" stroke-width="2"/>'
   + '<polyline points="'+points+'" fill="none" stroke="'+theme.accent+'" stroke-width="5"/>'
   + '<text x="24" y="32" fill="'+theme.text+'" font-size="26">波形随时间向前传播</text></svg>';`;
 
-export const orbitComponentCode = `const x=width/2, y=height/2+12, radius=92, angle=frame/fps*1.5;
+export const orbitComponentCode = `const cue = cues.demo;
+const elapsed = cue.started ? cue.frame / fps : 0;
+const x=width/2, y=height/2+12, radius=92, angle=elapsed*1.5;
 const px=x+Math.cos(angle)*radius, py=y+Math.sin(angle)*radius;
 return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+width+' '+height+'">'
 + '<circle cx="'+x+'" cy="'+y+'" r="'+radius+'" fill="none" stroke="'+theme.muted+'" stroke-width="2" stroke-dasharray="6 6"/>'
@@ -21,7 +26,8 @@ return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+width+' '+height+
 + '<text x="24" y="32" fill="'+theme.text+'" font-size="26">匀速圆周运动：半径保持不变</text></svg>';`;
 
 export const barsComponentCode = `const values=[30,60,45], labels=['A','B','C'];
-const eased=1-Math.pow(1-Math.min(1,progress*2),3);
+const cue=cues.demo;
+const eased=cue.started ? 1-Math.pow(1-Math.min(1,cue.progress*2),3) : 0;
 const bars=values.map((value,i)=>{
   const x=width*0.18+i*width*0.25, h=value*2.5*eased;
   return '<rect x="'+x+'" y="'+(230-h)+'" width="'+(width*0.13)+'" height="'+h+'" rx="6" fill="'+theme.accent+'"/>'
@@ -32,7 +38,7 @@ return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+width+' '+height+
 
 const image: Asset = { id: '00000000-0000-4000-8000-000000000001', name: '组件预览示例.png', mime: 'image/png', url: catalogImage.url, hash: 'catalog-image-v1', width: 640, height: 320 };
 export interface ComponentExample { id: string; title: string; description: string; kind: 'preset' | 'creative'; plan: RenderPlan; assets: Asset[] }
-const object = (type: TeachingObject['type'], content: string, id: string = type): TeachingObject => ({ id, type, content, language: type === 'code' ? 'python' : '' });
+const object = (type: TeachingObject['type'], content: string, id: string = type): TeachingObject => ({ id, type, content, language: type === 'code' ? 'python' : type === 'custom' ? 'javascript' : '', ...(type === 'custom' ? { motion: { version: 'narration-v1', cues: [{ id: 'demo', utteranceId: 'demo-narration' }] } } : {}) });
 function example(id: string, title: string, description: string, layout: Scene['layout'], objects: TeachingObject[], kind: ComponentExample['kind'] = 'preset'): ComponentExample {
   const scene: Scene = { id, title, chapter: '组件预览', layout, sourceBlockIds: ['catalog'], objects, narration: [{ id: 'demo-narration', text: description, showObjectIds: objects.map(item => item.id), focusObjectId: objects[0].id }] };
   const plan: RenderPlan = { schemaVersion: '0.1', revision: 1, title, fps: 30, width: 1280, height: 720, theme: 'sage', totalFrames: 180, previewMode: 'draft', scenes: [{ scene, startFrame: 0, durationFrames: 180, utterances: [{ utteranceId: 'demo-narration', url: '', durationSeconds: 6, boundaries: [{ kind: 'utterance', text: description, startSeconds: 0, endSeconds: 6 }], cacheHit: false, hash: '', estimated: true, startFrame: 0, durationFrames: 180 }] }] };
@@ -45,7 +51,7 @@ export const componentCatalog: ComponentExample[] = [
   example('formula', '数学公式', '使用 LaTeX 显示公式、符号和推导', 'content', [object('formula', 'A = P(1+r)^n')]),
   example('table', '数据表格', '用清晰的行列呈现统计、对比与进展', 'content', [object('table', '| 项目 | 本周状态 |\n| --- | --- |\n| 首页设计 | 已完成 |\n| 用户访谈 | 进行中 |\n| 新版发布 | 下周开始 |')]),
   example('image', '图片与标注', '展示截图、照片或插图，并突出相关区域', 'content', [{ ...object('image', image.id), imagePresentation: { fit: 'contain', caption: 'B 的数值大于 A', region: null, highlight: { x: 0.56, y: 0.1, width: 0.2, height: 0.69 } } }]),
-  example('diagram', '分步关系', '用文字顺序表达过程与关系', 'diagram', [object('diagram', '① 写入文稿与图片\n\n② 编排画面与旁白\n\n③ 配音并生成预览')]),
+  example('diagram', '节点与关系图', '用节点和箭头表达流程、概念关系与名称绑定', 'diagram', [{ ...object('diagram', JSON.stringify({ nodes: [{ id: 'source', label: '文稿与图片' }, { id: 'plan', label: '画面与旁白' }, { id: 'preview', label: '可播放视频' }], edges: [{ from: 'source', to: 'plan', label: '编排' }, { from: 'plan', to: 'preview', label: '配音对齐' }] })), language: DIAGRAM_LANGUAGE }]),
   example('layout-title', '开场标题', '呈现主题、引入问题或开启一段故事', 'title', [object('text', '**夜班渡船**\n\n最后一班船靠岸时，码头还亮着一盏灯。')]),
   example('layout-compare', '双栏对比', '并排呈现两种概念、观点或方法', 'compare', [object('text', '**单利**\n\n每期按初始本金计算。', 'left'), object('text', '**复利**\n\n每期按累计金额计算。', 'right')]),
   example('layout-summary', '收尾与行动', '呈现结论、下一步行动或故事尾声', 'summary', [object('text', '**下一步，开始你的项目。**\n\n写下内容 · 加入图片 · 生成预览')]),

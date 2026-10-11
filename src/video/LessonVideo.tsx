@@ -9,6 +9,9 @@ import type { Asset, Palette, RenderPlan, RenderScene, TeachingObject } from '..
 import { imageGeometry } from '../shared/images';
 import { resolvePalette } from '../shared/visual-style';
 import { CustomGraphic } from './CustomGraphic';
+import { PresetDiagram } from './PresetDiagram';
+import { DIAGRAM_LANGUAGE } from '../shared/diagram';
+import { resolveMotionCues, type ResolvedMotionCue } from '../shared/motion';
 
 export type LessonVideoProps = { plan: RenderPlan; assets: Asset[]; showSubtitles?: boolean };
 const fonts = '"PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif';
@@ -26,6 +29,11 @@ export function LessonVideo({ plan, assets, showSubtitles = true }: LessonVideoP
 
 function SceneVideo({ value, plan, assets, index, showSubtitles, hasNarrationAudio, palette }: { value: RenderScene; plan: RenderPlan; assets: Asset[]; index: number; showSubtitles: boolean; hasNarrationAudio: boolean; palette: Palette }) {
   const frame = useCurrentFrame();
+  const motionByObject = React.useMemo(() => {
+    const resolved = new Map<string, ResolvedMotionCue[]>();
+    for (const object of value.scene.objects) if (object.type === 'custom' && object.motion) resolved.set(object.id, resolveMotionCues(object.motion, value.utterances, plan.fps));
+    return resolved;
+  }, [value.scene.objects, value.utterances, plan.fps]);
   const scale = plan.width / 1280;
   const foreground = palette.text;
   const secondary = palette.muted;
@@ -42,7 +50,7 @@ function SceneVideo({ value, plan, assets, index, showSubtitles, hasNarrationAud
     </div>
     <h1 style={{ fontSize: 42 * scale, lineHeight: 1.25, margin: `${30 * scale}px 0 ${26 * scale}px`, fontWeight: 650, maxHeight: 108 * scale, overflow: 'hidden' }}>{value.scene.title}</h1>
     <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: value.scene.layout === 'compare' ? '1fr 1fr' : '1fr', alignContent: 'start', gap: 16 * scale, overflow: 'hidden', paddingBottom: 24 * scale }}>
-      {value.scene.objects.filter(o => visible.has(o.id)).map(o => <ObjectCard key={o.id} object={o} assets={assets} scale={scale} contentWidth={value.scene.layout === 'compare' ? 520 : 1104} palette={palette} focused={focus === o.id} frame={frame} fps={plan.fps} durationFrames={value.durationFrames} appearAt={value.utterances[value.scene.narration.findIndex(u => u.showObjectIds.includes(o.id))]?.startFrame ?? 0} />)}
+      {value.scene.objects.filter(o => visible.has(o.id)).map(o => <ObjectCard key={o.id} object={o} assets={assets} scale={scale} contentWidth={value.scene.layout === 'compare' ? 520 : 1104} palette={palette} focused={focus === o.id} frame={frame} resolvedCues={motionByObject.get(o.id)} fps={plan.fps} durationFrames={value.durationFrames} appearAt={value.utterances[value.scene.narration.findIndex(u => u.showObjectIds.includes(o.id))]?.startFrame ?? 0} />)}
     </div>
     {showSubtitles && <div style={{ minHeight: 62 * scale, padding: `${12 * scale}px ${20 * scale}px`, borderTop: `1px solid ${palette.muted}44`, color: foreground, fontSize: 24 * scale, lineHeight: 1.55, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{caption ?? ''}</div>}
     <div style={{ height: 3 * scale, background: `${palette.muted}44`, position: 'absolute', left: 0, right: 0, bottom: 0 }}><div style={{ height: '100%', width: `${(frame / value.durationFrames) * 100}%`, background: palette.accent }} /></div>
@@ -50,12 +58,13 @@ function SceneVideo({ value, plan, assets, index, showSubtitles, hasNarrationAud
   </AbsoluteFill>;
 }
 
-function ObjectCard({ object, assets, scale, contentWidth, palette, focused, frame, fps, durationFrames, appearAt }: { object: TeachingObject; assets: Asset[]; scale: number; contentWidth: number; palette: Palette; focused: boolean; frame: number; fps: number; durationFrames: number; appearAt: number }) {
+function ObjectCard({ object, assets, scale, contentWidth, palette, focused, frame, resolvedCues, fps, durationFrames, appearAt }: { object: TeachingObject; assets: Asset[]; scale: number; contentWidth: number; palette: Palette; focused: boolean; frame: number; resolvedCues?: ResolvedMotionCue[]; fps: number; durationFrames: number; appearAt: number }) {
   const rise = interpolate(frame - appearAt, [0, 8], [12 * scale, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const size = object.type === 'code' ? 22 : 26;
   const body = React.useMemo(() => {
     let body: React.ReactNode;
     if (object.type === 'custom') body = null;
+    else if (object.type === 'diagram' && object.language === DIAGRAM_LANGUAGE) body = <PresetDiagram content={object.content} width={contentWidth} scale={scale} palette={palette} />;
     else if (object.type === 'image') {
       const asset = assets.find(a => a.id === object.content);
       body = asset ? <TeachingImage asset={asset} object={object} width={contentWidth * scale} scale={scale} /> : <span>素材缺失</span>;
@@ -76,8 +85,8 @@ function ObjectCard({ object, assets, scale, contentWidth, palette, focused, fra
       code: ({ children }) => <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{children}</code>,
     }}>{object.content}</ReactMarkdown>;
     return body;
-  }, [object, assets, scale, contentWidth]);
-  return <div style={{ padding: `${18 * scale}px ${24 * scale}px`, borderRadius: 14 * scale, fontSize: size * scale, lineHeight: 1.5, background: palette.surface, border: `1px solid ${focused ? palette.accent : `${palette.muted}44`}`, boxShadow: focused ? `inset 0 0 0 1px ${palette.accent}44` : undefined, transform: `translateY(${rise}px)`, overflow: 'hidden' }}>{object.type === 'custom' ? <CustomGraphic code={object.content} frame={frame - appearAt} fps={fps} durationFrames={durationFrames - appearAt} width={contentWidth} scale={scale} palette={palette} /> : body}</div>;
+  }, [object, assets, scale, contentWidth, palette]);
+  return <div style={{ padding: `${18 * scale}px ${24 * scale}px`, borderRadius: 14 * scale, fontSize: size * scale, lineHeight: 1.5, background: palette.surface, border: `1px solid ${focused ? palette.accent : `${palette.muted}44`}`, boxShadow: focused ? `inset 0 0 0 1px ${palette.accent}44` : undefined, transform: `translateY(${rise}px)`, overflow: 'hidden' }}>{object.type === 'custom' ? <CustomGraphic code={object.content} frame={frame - appearAt} sceneFrame={frame} resolvedCues={resolvedCues} fps={fps} durationFrames={durationFrames - appearAt} width={contentWidth} scale={scale} palette={palette} /> : body}</div>;
 }
 
 function TeachingImage({ asset, object, width, scale }: { asset: Asset; object: TeachingObject; width: number; scale: number }) {

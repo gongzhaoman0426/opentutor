@@ -74,7 +74,7 @@ function parseSingleSource(markdown: string, assets: Asset[], chapterId?: string
     occurrences.set(fingerprint, occurrence);
     const id = `${chapterId ? `chapter_${chapterId}_` : ''}block_${fingerprint}_${occurrence}`;
     if (node.type === 'html') diagnostics.push({ code: 'HTML_AS_TEXT', severity: 'warning', sourceBlockId: id, message: '原始 HTML 仅作为文字资料处理，不执行脚本或嵌入内容。' });
-    if (node.type === 'code' && node.lang === 'mermaid') diagnostics.push({ code: 'MERMAID_FALLBACK', severity: 'warning', sourceBlockId: id, message: 'Mermaid 将转成步骤或关系文字；当前版本不执行 Mermaid 源码。' });
+    if (node.type === 'code' && node.lang === 'mermaid') diagnostics.push({ code: 'MERMAID_FALLBACK', severity: 'warning', sourceBlockId: id, message: 'Mermaid 将按节点与关系改编为预设图解或创作 SVG；当前版本不直接执行 Mermaid 源码。' });
     const visit = (child: Record<string, unknown>) => {
       if (child.type === 'image' || child.type === 'imageReference') {
         const url = child.type === 'image' ? String(child.url ?? '') : definitions.get(String(child.identifier).toLowerCase()) || '';

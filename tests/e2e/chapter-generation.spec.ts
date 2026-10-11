@@ -188,6 +188,11 @@ test('previews all preset components and actual animated JavaScript SVG componen
   await expect(modal.getByRole('button', { name: /^预览组件：/ })).toHaveCount(12);
   await modal.getByRole('button', { name: '预览组件：图片与标注', exact: true }).click();
   await expect(modal.locator('.component-gallery-featured img')).toBeVisible();
+  await modal.getByRole('button', { name: '预览组件：节点与关系图', exact: true }).click();
+  const preset = modal.locator('.component-gallery-featured svg[role="img"]');
+  await expect(preset).toBeVisible();
+  await expect(preset.locator('[data-diagram-node]')).toHaveCount(3);
+  await expect(preset.locator('[data-diagram-edge]')).toHaveCount(2);
   await modal.getByRole('button', { name: '预览组件：动态波形', exact: true }).click();
   const svg = modal.locator('.component-gallery-featured').getByRole('img', { name: 'AI 自定义图形组件' });
   await expect(svg).toBeVisible();
