@@ -18,7 +18,7 @@ export async function jsonBody(request: Request, limit = 1024 * 1024): Promise<u
   catch { throw new AppError(400, 'INVALID_JSON', 'JSON 内容无效'); }
 }
 export function errorResponse(error: unknown) {
-  if (error instanceof AppError) return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+  if (error instanceof AppError) return Response.json({ error: { code: error.code, message: error.message, ...(error.params ? { params: error.params } : {}) } }, { status: error.status });
   if (error instanceof ZodError) return Response.json({ error: { code: 'VALIDATION_ERROR', message: '请检查输入格式', details: error.issues.map(i => ({ path: i.path.join('.'), message: i.message })) } }, { status: 422 });
   console.error('[OpenTutor] API failed:', error instanceof Error ? error.name : 'UnknownError');
   return Response.json({ error: { code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请检查数据库和 Worker 后重试' } }, { status: 503 });

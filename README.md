@@ -26,7 +26,7 @@ npm run dev
 ## 制作流程
 
 1. 主页输入项目名称创建项目，进入单屏编辑页。
-2. 左侧管理章节，中间按章编写或导入 Markdown；上传、拖入或粘贴图片后自动插入稳定素材引用。
+2. 左侧管理章节，中间按章编写或导入 Markdown；也可以将文稿与相对引用的图片打包为 ZIP，导入指定章节，打包方式见 [Markdown 章节压缩包规范](docs/markdown-package-format.md)。上传、拖入或粘贴图片后自动插入稳定素材引用。
 3. 右侧“Markdown”预览文稿与图片。点击“生成视频”打开本章设置，可选视频用途、目标受众与创作要求，以及分辨率、微软音色、画面风格、Codex 模型和稳定／创作模式。保存设置或生成本章时，会记住整套参数，供本项目后续未配置、新建和导入的章节自动沿用；前序章节、已有视频、进行中的任务及独立设置保留原参数。
 4. 确认“生成本章视频”后，系统自动完成图片理解、章节编排、校验、微软配音和时间轴。一个章节生成一个独立视频；切换章节时，预览与下载同步切换。
 5. 点击“下载视频”才开始当前章节的 MP4 渲染；相同输入已有成片时直接下载。修改本章保留旧预览，编辑其他章节不会让本章视频失效。
@@ -123,6 +123,7 @@ npm run build
 
 - [产品需求](docs/product-requirements.md)
 - [技术方案](docs/technical-design.md)
+- [Markdown 章节压缩包规范](docs/markdown-package-format.md)
 - [Codex SDK 官方文档](https://learn.chatgpt.com/docs/codex-sdk)
 - [Edge TTS 接入项目](https://github.com/rany2/edge-tts)
 - [Remotion Renderer](https://www.remotion.dev/docs/renderer/render-media)

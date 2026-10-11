@@ -50,6 +50,7 @@ describe('UI internationalization', () => {
     const failure = new ApiError('请选择与视频语言匹配的音色。', 422, 'VOICE_LANGUAGE_MISMATCH');
     expect(errorMessage(failure, 'en')).toBe('Choose a voice that matches the video language.');
     expect(errorMessage(failure, 'zh-CN')).toBe(failure.message);
+    expect(errorMessage(new ApiError('找不到图片', 422, 'MARKDOWN_IMAGE_MISSING', { path: '包/图 片/封面.png' }), 'en')).toBe('Image not found in the package: 包/图 片/封面.png. Check the relative path and letter case.');
     expect(errorMessage(new Error('ffmpeg: diagnostic 1'), 'en')).toBe('ffmpeg: diagnostic 1');
   });
   it('localizes only fallback names during an explicit import, preserving source text and existing titles', () => {

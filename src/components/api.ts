@@ -5,7 +5,7 @@ import { translateUi } from '../i18n/translate';
 import { en as errorTranslations } from '../i18n/messages/errors';
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public code?: string) { super(message); }
+  constructor(message: string, public status: number, public code?: string, public params?: Record<string, string | number>) { super(message); }
 }
 
 export async function api<T>(url: string, init: RequestInit = {}): Promise<T> {
@@ -16,14 +16,16 @@ export async function api<T>(url: string, init: RequestInit = {}): Promise<T> {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = typeof body.error === 'string' ? body.error : body.error?.message || body.message || translateUi('zh-CN', 'requestFailed', { status: response.status });
-    throw new ApiError(message, response.status, body.error?.code ?? (typeof body.error !== 'string' && !body.error?.message && !body.message ? 'REQUEST_FAILED' : undefined));
+    const params = body.error?.params && typeof body.error.params === 'object' && !Array.isArray(body.error.params)
+      ? Object.fromEntries(Object.entries(body.error.params).filter((entry): entry is [string, string | number] => typeof entry[1] === 'string' || typeof entry[1] === 'number')) : undefined;
+    throw new ApiError(message, response.status, body.error?.code ?? (typeof body.error !== 'string' && !body.error?.message && !body.message ? 'REQUEST_FAILED' : undefined), params);
   }
   return body as T;
 }
 
 export const errorMessage = (error: unknown, locale: UiLocale = 'zh-CN') => {
   if (error instanceof ApiError && error.code === 'REQUEST_FAILED') return translateUi(locale, 'requestFailed', { status: error.status });
-  if (locale === 'en' && error instanceof ApiError && error.code && Object.hasOwn(errorTranslations, error.code)) return translateUi(locale, `errors:${error.code}`);
+  if (locale === 'en' && error instanceof ApiError && error.code && Object.hasOwn(errorTranslations, error.code)) return translateUi(locale, `errors:${error.code}`, { replace: error.params });
   return error instanceof Error ? error.message : translateUi(locale, 'unknownError');
 };
 export const formatDate = (value: string, locale: UiLocale = 'zh-CN') => new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(new Date(value));

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { type PlayerRef } from '@remotion/player';
-import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronLeft, Download, FileText, Film, ImagePlus, List, LoaderCircle, Plus, RefreshCw, Save, Settings2, Layers3, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronLeft, Download, FileArchive, FileText, Film, ImagePlus, List, LoaderCircle, Plus, RefreshCw, Save, Settings2, Layers3, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import type { Asset, Chapter, GenerationSettings, JobRecord, Project, ProjectSnapshot, RenderPlan } from '@/shared/schema';
 import { createEmptyChapter, getChapterSourceKey, getProjectChapters, isChapterVideoCurrent, joinChapterMarkdown, splitMarkdownChapters } from '@/shared/chapters';
 import { activeStatus, api, ApiError, errorMessage } from './api';
@@ -19,11 +19,13 @@ import { formatRenderProgress } from '@/shared/render-progress';
 import { mergeProtectedChapterSettings, rememberChapterSettings } from '@/shared/chapter-settings';
 import { useVideoVersions } from './useVideoVersions';
 import { VideoVersionPicker } from './VideoVersionPicker';
+import { MARKDOWN_IMPORT_LIMITS, nameImportedAssets, type MarkdownImportResult } from '@/shared/markdown-import';
 
 type Draft = ProjectSnapshot & { chapters: Chapter[] };
 type EditorNotice = { key: keyof typeof editorMessages; values?: Record<string, string | number> };
 class EditorIssue extends Error { constructor(readonly key: keyof typeof editorMessages) { super(key); } }
 type Cursor = { chapterId: string; start: number; end: number; markdown: string };
+type PendingPackage = MarkdownImportResult & { projectId: string; chapterId: string; originalMarkdown: string };
 const toDraft = (project: Project): Draft => ({ id: project.id, title: project.title, markdown: project.markdown, chapters: getProjectChapters(project), settings: project.settings, assets: project.assets, revision: project.revision, lesson: project.lesson, sourceMode: project.sourceMode });
 const identity = (draft: Draft) => JSON.stringify({ title: draft.title, chapters: draft.chapters, assets: draft.assets, settings: draft.settings, lesson: draft.lesson });
 const stages: Record<string, keyof typeof editorMessages> = { vision: 'stageImages', images: 'stageImages', overview: 'stageOverview', queued: 'stageQueued', starting: 'stageStarting', parse: 'stageParse', codex: 'stagePlanning', planning: 'stagePlanning', validate: 'stageValidate', speech: 'stageSpeech', timeline: 'stageTimeline', render: 'stageRender', rendering: 'stageRender', completed: 'stageCompleted', cancelling: 'stageCancelling' };
@@ -54,10 +56,14 @@ export function CourseEditor({ id }: { id: string }) {
   const [settingsChapter, setSettingsChapter] = useState<{ id: string; library: boolean } | null>(null);
   const [deleteChapter, setDeleteChapter] = useState<Chapter | null>(null);
   const [importText, setImportText] = useState<string | null>(null);
+  const [importingPackage, setImportingPackage] = useState(false);
+  const [pendingPackage, setPendingPackage] = useState<PendingPackage | null>(null);
   const player = useRef<PlayerRef>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const markdownInput = useRef<HTMLInputElement>(null);
+  const packageInput = useRef<HTMLInputElement>(null);
+  const packageRequest = useRef<AbortController | null>(null);
   const draftRef = useRef<Draft | null>(null);
   const serverRef = useRef<Project | null>(null);
   const baseRef = useRef('');
@@ -74,10 +80,14 @@ export function CourseEditor({ id }: { id: string }) {
   const submittingKind = useRef<'preview' | 'export' | null>(null);
   const downloaded = useRef(new Set<string>());
   const stablePreview = useRef<{ signature: string; plan: RenderPlan; assets: Asset[] } | null>(null);
-  const modal = useModalFocus(() => { setDeleteChapter(null); setImportText(null); }, !!deleteChapter || importText !== null);
+  const modal = useModalFocus(() => { setDeleteChapter(null); setImportText(null); setPendingPackage(null); }, !!deleteChapter || importText !== null || !!pendingPackage);
   const dirty = !!draft && identity(draft) !== baseIdentity;
   dirtyRef.current = dirty;
   selectedChapter.current = chapterId;
+  useEffect(() => {
+    setPendingPackage(null); setImportingPackage(false);
+    return () => { packageRequest.current?.abort(); packageRequest.current = null; };
+  }, [id]);
 
   const adopt = useCallback((next: Project) => {
     const value = toDraft(next); draftRef.current = value; baseRef.current = identity(value); dirtyRef.current = false;
@@ -273,6 +283,47 @@ export function CourseEditor({ id }: { id: string }) {
   const importMarkdown = async (file?: File) => { if (!file) return; if (file.size > 2_000_000 || !/\.(md|markdown|txt)$/i.test(file.name)) { setError(new EditorIssue('invalidMarkdownFile')); return; } const text = await file.text(); if (text.length > 300000) { setError(new EditorIssue('scriptTooLong')); return; } if (draftRef.current?.chapters.some(value => value.markdown.trim())) setImportText(text); else applyImport(text); };
   const applyImport = (text: string) => { const chapters = splitMarkdownChapters(text, { untitled: t('untitledChapter'), imported: t('importedChapter'), introduction: t('introductionChapter') }); change(value => ({ ...value, chapters, lesson: null, markdown: text })); setChapterId(chapters[0].id); setImportText(null); };
 
+  const checkPackageTarget = (value: Draft, imported: PendingPackage) => {
+    const target = value.chapters.find(item => item.id === imported.chapterId);
+    if (value.id !== imported.projectId || !target) throw new EditorIssue('packageChapterRemoved');
+    if (target.markdown !== imported.originalMarkdown) throw new EditorIssue('packageChapterChanged');
+    const assetIds = new Set([...value.assets, ...imported.assets].map(asset => asset.id));
+    if (assetIds.size > MARKDOWN_IMPORT_LIMITS.images) throw new EditorIssue('packageAssetLimit');
+    const chapters = value.chapters.map(item => item.id === target.id ? { ...item, markdown: imported.markdown } : item);
+    if (chapters.reduce((total, item) => total + item.markdown.length, 0) > MARKDOWN_IMPORT_LIMITS.markdownCharacters || joinChapterMarkdown(chapters).length > MARKDOWN_IMPORT_LIMITS.markdownCharacters) throw new EditorIssue('scriptTooLong');
+    return target;
+  };
+  const importPackage = async (file?: File) => {
+    if (!file || packageRequest.current) return;
+    const current = draftRef.current;
+    const target = current?.chapters.find(item => item.id === selectedChapter.current);
+    if (!current || !target) return;
+    if (!/\.zip$/i.test(file.name) || !file.size || file.size > MARKDOWN_IMPORT_LIMITS.archiveBytes) { setError(new EditorIssue('invalidPackageFile')); return; }
+    const controller = new AbortController(); packageRequest.current = controller;
+    setImportingPackage(true); setError(null); setMessage(null);
+    try {
+      const form = new FormData(); form.append('file', file);
+      const imported = await api<MarkdownImportResult>('/api/markdown-import', { method: 'POST', body: form, signal: controller.signal });
+      if (controller.signal.aborted || !draftRef.current) return;
+      const pending = { ...imported, projectId: current.id, chapterId: target.id, originalMarkdown: target.markdown };
+      checkPackageTarget(draftRef.current, pending);
+      setPendingPackage(pending);
+    } catch (failure) { if (!controller.signal.aborted) { if (failure instanceof ApiError && failure.status === 401) setNeedsSession(true); setError(failure); } }
+    finally { if (packageRequest.current === controller) { packageRequest.current = null; setImportingPackage(false); } }
+  };
+  const applyPackage = () => {
+    if (!pendingPackage || !draftRef.current) return;
+    try {
+      const target = checkPackageTarget(draftRef.current, pendingPackage);
+      change(value => ({ ...value, lesson: null,
+        chapters: value.chapters.map(item => item.id === target.id ? { ...item, markdown: pendingPackage.markdown } : item),
+        assets: [...value.assets, ...nameImportedAssets(value.assets, pendingPackage.assets.filter(asset => !value.assets.some(existing => existing.id === asset.id)))],
+      }));
+      player.current?.pause(); setChapterId(target.id); setPreviewTab('markdown'); setPendingPackage(null); setError(null);
+      setMessage({ key: 'packageImported', values: { title: target.title, count: pendingPackage.assets.length } });
+    } catch (failure) { setPendingPackage(null); setError(failure); }
+  };
+
   // A completed job is a frozen history entry even when concurrent edits kept
   // it from replacing the published video (outputRevision can remain null).
   const incremental = ownJob?.status !== 'succeeded' && ownJob?.preview?.renderPlan && (!chapterOutput || ownJob.updatedAt >= chapterOutput.updatedAt) ? ownJob.preview : null;
@@ -325,11 +376,11 @@ export function CourseEditor({ id }: { id: string }) {
     {(errorText || failureReason) && <div className="chapter-alert" role="alert"><AlertCircle size={15} /><span>{errorText || failureReason}</span><button className="text-button" onClick={() => setDetailsOpen(!detailsOpen)}>{t('showDetails')}</button>{errorText && <button className="icon-button" aria-label={t('closeError')} onClick={() => setError(null)}><X size={14} /></button>}</div>}
     {conflict && <div className="chapter-alert warning"><span>{t('conflictNotice')}</span><button className="text-button" onClick={() => { const local = draftRef.current!; baseRef.current = identity(toDraft(conflict)); setBaseIdentity(baseRef.current); change(() => ({ ...local, revision: conflict.revision })); blockedSave.current = false; setConflict(null); setError(null); }}>{t('keepMyChanges')}</button><button className="text-button" onClick={() => adopt(conflict)}>{t('loadServerVersion')}</button></div>}
     <main className={`chapter-layout ${chaptersOpen ? '' : 'chapters-collapsed'}`}>
-      <nav className="chapter-navigation" aria-label={t('projectChapters')}><div className="chapter-navigation-heading"><span>{t('chapters')} <small>{draft.chapters.length}</small></span><button className="icon-button" aria-label={t('collapseChapters')} onClick={() => setChaptersOpen(false)}><ChevronLeft size={16} /></button></div><div className="chapter-navigation-list">{draft.chapters.map((value, index) => <button key={value.id} className={value.id === chapter.id ? 'selected' : ''} onClick={() => chooseChapter(value.id)}><small>{String(index + 1).padStart(2, '0')}</small><span>{value.title}</span>{project.chapterVideos?.[value.id] && <i className={`chapter-video-dot ${project.chapterVideos[value.id].current ? 'ready' : ''}`} title={project.chapterVideos[value.id].current ? t('videoReady') : t('videoNeedsUpdate')} />}</button>)}</div><button className="chapter-add-button" onClick={addChapter}><Plus size={15} />{t('addChapter')}</button><button className="text-button chapter-import" onClick={() => markdownInput.current?.click()}><Upload size={13} />{t('importMarkdown')}</button></nav>
-      <section className="chapter-editor"><div className="chapter-pane-header">{!chaptersOpen && <button className="icon-button" aria-label={t('expandChapters')} onClick={() => setChaptersOpen(true)}><List size={17} /></button>}<input aria-label={t('chapterName')} value={chapter.title} maxLength={120} onChange={event => editChapter({ title: event.target.value })} /><div className="chapter-edit-actions"><button className="icon-button" aria-label={t('moveChapterUp')} disabled={draft.chapters[0].id === chapter.id} onClick={() => moveChapter(-1)}><ArrowUp size={14} /></button><button className="icon-button" aria-label={t('moveChapterDown')} disabled={draft.chapters.at(-1)?.id === chapter.id} onClick={() => moveChapter(1)}><ArrowDown size={14} /></button><button className="icon-button" aria-label={t('deleteChapter')} disabled={draft.chapters.length < 2} onClick={() => setDeleteChapter(chapter)}><Trash2 size={14} /></button></div><button className="button secondary small chapter-image-action" onMouseDown={rememberCursor} onClick={() => { rememberCursor(); setImagesOpen(!imagesOpen); }}><ImagePlus size={14} />{t('insertImage')}</button></div>
+      <nav className="chapter-navigation" aria-label={t('projectChapters')}><div className="chapter-navigation-heading"><span>{t('chapters')} <small>{draft.chapters.length}</small></span><button className="icon-button" aria-label={t('collapseChapters')} onClick={() => setChaptersOpen(false)}><ChevronLeft size={16} /></button></div><div className="chapter-navigation-list">{draft.chapters.map((value, index) => <button key={value.id} className={value.id === chapter.id ? 'selected' : ''} onClick={() => chooseChapter(value.id)}><small>{String(index + 1).padStart(2, '0')}</small><span>{value.title}</span>{project.chapterVideos?.[value.id] && <i className={`chapter-video-dot ${project.chapterVideos[value.id].current ? 'ready' : ''}`} title={project.chapterVideos[value.id].current ? t('videoReady') : t('videoNeedsUpdate')} />}</button>)}</div><button className="chapter-add-button" onClick={addChapter}><Plus size={15} />{t('addChapter')}</button><button className="text-button chapter-import" disabled={importingPackage} onClick={() => markdownInput.current?.click()}><Upload size={13} />{t('importMarkdown')}</button></nav>
+      <section className="chapter-editor"><div className="chapter-pane-header">{!chaptersOpen && <button className="icon-button" aria-label={t('expandChapters')} onClick={() => setChaptersOpen(true)}><List size={17} /></button>}<input aria-label={t('chapterName')} value={chapter.title} maxLength={120} onChange={event => editChapter({ title: event.target.value })} /><div className="chapter-edit-actions"><button className="icon-button" aria-label={t('moveChapterUp')} disabled={draft.chapters[0].id === chapter.id} onClick={() => moveChapter(-1)}><ArrowUp size={14} /></button><button className="icon-button" aria-label={t('moveChapterDown')} disabled={draft.chapters.at(-1)?.id === chapter.id} onClick={() => moveChapter(1)}><ArrowDown size={14} /></button><button className="icon-button" aria-label={t('deleteChapter')} disabled={draft.chapters.length < 2 || importingPackage} onClick={() => setDeleteChapter(chapter)}><Trash2 size={14} /></button></div><button className="button secondary small chapter-package-action" aria-label={t('importPackage')} title={t('importPackage')} disabled={importingPackage || uploading || !!conflict} onClick={() => packageInput.current?.click()}>{importingPackage ? <LoaderCircle size={14} className="spin" /> : <FileArchive size={14} />}<span>{t('importPackageShort')}</span></button><button className="button secondary small chapter-image-action" onMouseDown={rememberCursor} onClick={() => { rememberCursor(); setImagesOpen(!imagesOpen); }}><ImagePlus size={14} />{t('insertImage')}</button></div>
       {imagesOpen && <div className="chapter-image-tray"><div><strong>{t('projectAssets')}</strong><button className="text-button" disabled={uploading} onClick={() => imageInput.current?.click()}>{uploading ? <LoaderCircle size={13} className="spin" /> : <Upload size={13} />}{t('uploadImage')}</button></div>{draft.assets.length ? <div className="chapter-image-library">{draft.assets.map(asset => <button key={asset.id} onClick={() => insertAsset(asset)}><img src={asset.url} alt="" /><span>{asset.name}</span><Plus size={14} /></button>)}</div> : <p>{t('imageLibraryHint')}</p>}</div>}
-      <textarea ref={textarea} className="chapter-markdown-editor" aria-label={t('chapterMarkdown')} placeholder={t('markdownPlaceholder')} spellCheck={false} value={chapter.markdown} maxLength={300000} onChange={event => editChapter({ markdown: event.target.value })} onSelect={rememberCursor} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); void upload(files); } }} onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }} onDrop={event => { const files = Array.from(event.dataTransfer.files); if (files.length) { event.preventDefault(); void upload(files); } }} />
-      <div className="chapter-editor-footer"><span>{uploading ? t('uploadingImages') : t('characterCount', { value: chapter.markdown.length.toLocaleString(locale) })}</span><span>{t('autosave')}</span></div></section>
+      <textarea ref={textarea} className="chapter-markdown-editor" aria-label={t('chapterMarkdown')} placeholder={t('markdownPlaceholder')} spellCheck={false} value={chapter.markdown} maxLength={300000} onChange={event => editChapter({ markdown: event.target.value })} onSelect={rememberCursor} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); void upload(files); } }} onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }} onDrop={event => { const files = Array.from(event.dataTransfer.files); if (files.length) { event.preventDefault(); if (files.length === 1 && /\.zip$/i.test(files[0].name)) void importPackage(files[0]); else void upload(files); } }} />
+      <div className="chapter-editor-footer"><span>{importingPackage ? t('importingPackage') : uploading ? t('uploadingImages') : t('characterCount', { value: chapter.markdown.length.toLocaleString(locale) })}</span><span>{t('autosave')}</span></div></section>
       <section className="chapter-preview" aria-label={t('videoPreview')}><div className="chapter-pane-header chapter-preview-header"><div className="chapter-preview-tabs" role="tablist" aria-label={t('previewTabs')}><button id="markdown-preview-tab" role="tab" aria-selected={previewTab === 'markdown'} aria-controls="markdown-preview-panel" className={previewTab === 'markdown' ? 'selected' : ''} onClick={() => { player.current?.pause(); setPreviewTab('markdown'); }}><FileText size={14} />{t('markdownTab')}</button><button id="video-preview-tab" role="tab" aria-selected={previewTab === 'video'} aria-controls="video-preview-panel" className={previewTab === 'video' ? 'selected' : ''} onClick={() => setPreviewTab('video')}><Film size={14} />{t('videoTab')}</button></div><span>{previewTab === 'markdown' ? t('currentChapter') : historical ? t('readOnlyHistory') : stale ? t('scriptUpdated') : showIncremental ? activeStatus(ownJob?.status) ? t('generatingShort') : t('incompletePreview') : t('chapterVideo')}</span></div>
       <div id="markdown-preview-panel" role="tabpanel" aria-labelledby="markdown-preview-tab" hidden={previewTab !== 'markdown'} className="chapter-reading-preview"><div className="markdown-document"><ChapterMarkdownPreview markdown={chapter.markdown} assets={draft.assets} chapters={draft.chapters} /></div></div>
       <div id="video-preview-panel" role="tabpanel" aria-labelledby="video-preview-tab" hidden={previewTab !== 'video'} className="chapter-video-preview">
@@ -348,6 +399,8 @@ export function CourseEditor({ id }: { id: string }) {
     {historyOpen && <HistoricalCoursePreview project={project} onClose={() => setHistoryOpen(false)} />}
     {settingsChapter && <GenerationSettingsDialog key={settingsChapter.id} chapterTitle={draft.chapters.find(value => value.id === settingsChapter.id)?.title ?? ''} initial={draft.chapters.find(value => value.id === settingsChapter.id)?.settings ?? draft.settings} busy={busy || submitting || !!conflict} canGenerate={!!draft.chapters.find(value => value.id === settingsChapter.id)?.markdown.trim() && !uploading} initialLibrary={settingsChapter.library} onClose={() => setSettingsChapter(null)} onApply={applySettings} />}
     {(deleteChapter || importText !== null) && <div className="modal-overlay"><section ref={modal} className="modal-card confirm-modal" role="dialog" aria-modal="true" aria-labelledby="chapter-confirm-title"><h2 id="chapter-confirm-title">{deleteChapter ? t('confirmDeleteTitle') : t('confirmImportTitle')}</h2><p>{deleteChapter ? t('confirmDeleteBody', { title: deleteChapter.title }) : t('confirmImportBody')}</p><div className="confirm-actions"><button className="button secondary" onClick={() => { setDeleteChapter(null); setImportText(null); }}>{t('cancel')}</button><button className={`button ${deleteChapter ? 'danger' : 'primary'}`} onClick={() => { if (deleteChapter) { const chapters = draftRef.current!.chapters.filter(value => value.id !== deleteChapter.id); change(value => ({ ...value, chapters, lesson: null })); if (chapter.id === deleteChapter.id) setChapterId(chapters[0].id); setDeleteChapter(null); } else if (importText !== null) applyImport(importText); }}>{deleteChapter ? t('confirmDelete') : t('importAndReplace')}</button></div></section></div>}
+    {pendingPackage && <div className="modal-overlay"><section ref={modal} className="modal-card confirm-modal package-import-modal" role="dialog" aria-modal="true" aria-labelledby="package-import-title"><h2 id="package-import-title">{t('packageTitle')}</h2><p><strong>{t('packageTarget', { title: draft.chapters.find(value => value.id === pendingPackage.chapterId)?.title ?? '' })}</strong><br />{t('packageSummary', { path: pendingPackage.markdownPath, count: pendingPackage.assets.length })}</p><p>{t('packageHint')}</p><div className="confirm-actions"><button className="button secondary" onClick={() => setPendingPackage(null)}>{t('cancel')}</button><button className="button primary" onClick={applyPackage}>{t('packageApply')}</button></div></section></div>}
+    <input ref={packageInput} type="file" hidden accept=".zip,application/zip" onChange={event => { void importPackage(event.target.files?.[0]); event.target.value = ''; }} />
     <input ref={imageInput} type="file" hidden multiple accept="image/png,image/jpeg,image/webp" onChange={event => { void upload(Array.from(event.target.files ?? [])); event.target.value = ''; }} /><input ref={markdownInput} type="file" hidden accept=".md,.markdown,.txt" onChange={event => { void importMarkdown(event.target.files?.[0]); event.target.value = ''; }} />
     {needsSession && <SessionGate onSuccess={() => reload(!draftRef.current)} />}
   </div>;

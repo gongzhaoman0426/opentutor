@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { copyFile, stat, writeFile, realpath } from 'node:fs/promises';
+import { copyFile, stat, writeFile, realpath, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { getPool, initDb } from './db';
@@ -17,7 +17,8 @@ export async function publishFile(source: string, mime: string, name = 'artifact
   await initDb();
   const id = randomUUID(); const destination = path.join(/* turbopackIgnore: true */ cacheDirectory('artifacts'), id);
   await copyFile(/* turbopackIgnore: true */ source, destination);
-  await getPool().query('INSERT INTO artifacts(id,path,mime,name,project_id) VALUES($1,$2,$3,$4,$5)', [id, destination, mime, name.slice(0, 200), ownerProjectId || null]);
+  try { await getPool().query('INSERT INTO artifacts(id,path,mime,name,project_id) VALUES($1,$2,$3,$4,$5)', [id, destination, mime, name.slice(0, 200), ownerProjectId || null]); }
+  catch (error) { await unlink(destination).catch(() => {}); throw error; }
   return { id, url: `/api/artifacts/${id}`, path: destination, mime, name: name.slice(0, 200), projectId: ownerProjectId || null };
 }
 export async function artifactRecord(id: string): Promise<StoredArtifact> {
@@ -39,17 +40,42 @@ export function detectImageMime(bytes: Uint8Array): 'image/png' | 'image/jpeg' |
   if (b.length >= 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
   return null;
 }
-export async function uploadImage(bytes: Uint8Array, name: string) {
+export async function validateImage(bytes: Uint8Array) {
   if (!bytes.length || bytes.length > 15 * 1024 * 1024) throw new AppError(413, 'FILE_TOO_LARGE', '图片大小应为 1 B 到 15 MB');
   const mime = detectImageMime(bytes);
   if (!mime) throw new AppError(415, 'UNSUPPORTED_FILE', '仅支持 PNG、JPEG、WebP 图片，不接受 SVG 或网页');
+  // libvips reads APNG as its first PNG frame, so metadata.pages alone cannot
+  // enforce the static-image contract for this format.
+  if (mime === 'image/png') {
+    const buffer = Buffer.from(bytes);
+    for (let offset = 8; offset + 12 <= buffer.length;) {
+      const length = buffer.readUInt32BE(offset);
+      if (buffer.toString('ascii', offset + 4, offset + 8) === 'acTL') throw new AppError(415, 'INVALID_IMAGE', '请使用有效的静态图片');
+      offset += length + 12;
+    }
+  }
   const dimensions = await sharp(bytes, { limitInputPixels: 40000000, animated: false }).metadata().catch(() => { throw new AppError(415, 'INVALID_IMAGE', '图片无法读取，请重新导出为 PNG、JPEG 或 WebP'); });
   if (!dimensions.width || !dimensions.height || (dimensions.pages ?? 1) > 1) throw new AppError(415, 'INVALID_IMAGE', '请使用有效的静态图片');
-  const temporary = path.join(cacheDirectory('uploads'), randomUUID()); await writeFile(temporary, bytes);
-  const artifact = await publishFile(temporary, mime, path.basename(name).slice(0, 200));
-  const { unlink } = await import('node:fs/promises'); await unlink(temporary).catch(() => {});
+  // Reading the header is insufficient: truncated image data can still expose
+  // dimensions. Stats forces a complete decode without retaining a raw buffer.
+  await sharp(bytes, { limitInputPixels: 40000000, animated: false, failOn: 'warning' }).stats().catch(() => { throw new AppError(415, 'INVALID_IMAGE', '图片数据不完整或无法读取，请重新导出图片'); });
   const rotated = dimensions.orientation && dimensions.orientation >= 5;
-  return { id: artifact.id, name: artifact.name, mime, url: artifact.url, hash: createHash('sha256').update(bytes).digest('hex'), width: rotated ? dimensions.height : dimensions.width, height: rotated ? dimensions.width : dimensions.height };
+  return { mime, width: rotated ? dimensions.height : dimensions.width, height: rotated ? dimensions.width : dimensions.height };
+}
+export async function uploadImage(bytes: Uint8Array, name: string) {
+  const dimensions = await validateImage(bytes);
+  const temporary = path.join(cacheDirectory('uploads'), randomUUID());
+  try {
+    await writeFile(temporary, bytes);
+    const artifact = await publishFile(temporary, dimensions.mime, path.basename(name).slice(0, 200));
+    return { id: artifact.id, name: artifact.name, ...dimensions, url: artifact.url, hash: createHash('sha256').update(bytes).digest('hex') };
+  } finally { await unlink(temporary).catch(() => {}); }
+}
+/** Roll back only assets created by an import that has not been returned to a client. */
+export async function discardUploadedImages(ids: string[]) {
+  if (!ids.length) return;
+  const removed = await getPool().query('DELETE FROM artifacts WHERE id = ANY($1::uuid[]) AND project_id IS NULL RETURNING id', [ids]);
+  await Promise.all(removed.rows.map(({ id }: { id: string }) => unlink(path.join(cacheDirectory('artifacts'), id)).catch(() => {})));
 }
 export interface ByteRange { start: number; end: number }
 export function parseRange(header: string | null, size: number): ByteRange | null {

@@ -747,6 +747,10 @@ input[type='checkbox'] { accent-color: var(--sage); width: 11px; height: 11px; m
 .chapter-edit-actions { display: flex; align-items: center; gap: 0; }
 .chapter-edit-actions .icon-button { padding: 5px; color: var(--muted); }
 .chapter-image-action { font-size: 11px !important; padding: 7px 9px !important; gap: 4px; margin-left: 4px; }
+.chapter-package-action { font-size: 11px !important; padding: 7px 9px !important; gap: 4px; flex-shrink: 0; }
+.package-import-modal p { overflow-wrap: anywhere; }
+.package-import-modal .confirm-actions { flex-wrap: wrap; }
+@media (max-width: 1150px) { .chapter-package-action { padding: 7px !important; } .chapter-package-action span { display: none; } }
 .chapter-markdown-editor { width: 100%; flex: 1; min-height: 80px; border: none !important; border-radius: 0 !important; outline: none !important; background: #ffffff !important; padding: 25px 22px !important; color: var(--ink); font: 13px/1.9 'SFMono-Regular', Consolas, 'PingFang SC', monospace; resize: none; overscroll-behavior: contain; }
 .chapter-markdown-editor:focus { box-shadow: inset 3px 0 0 #21623e16; }
 .chapter-editor-footer { height: 38px; flex: 0 0 38px; display: flex; justify-content: space-between; gap: 12px; align-items: center; border-top: 1px solid var(--line); padding: 0 19px; color: var(--muted); font-size: 11px; }
