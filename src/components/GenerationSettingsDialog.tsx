@@ -79,7 +79,7 @@ export function GenerationSettingsDialog({ chapterTitle, initial, busy, canGener
           <label className="field generation-rate">语速 <span>{value.rate === 0 ? '标准' : `${value.rate > 0 ? '+' : ''}${value.rate}%`}</span><input aria-label="配音语速" type="range" min={-50} max={100} step={5} value={value.rate} onChange={event => { set('rate', Number(event.target.value)); audio.current?.pause(); setSpeech(null); }} /></label>
           <label className="field">AI 模型<select aria-label="AI 模型" value={value.model} onChange={event => set('model', event.target.value)}><option value="">{defaultModel ? `${defaultModel.displayName} · 服务端默认` : '服务端默认模型'}</option>{value.model && !models.some(model => model.id === value.model) && <option value={value.model}>{value.model} · 已保存</option>}{models.map(model => <option key={model.id} value={model.id}>{model.displayName}</option>)}</select><span className="field-hint">来自当前 Codex 的模型列表。</span></label>
           {loading && <p className="generation-catalog-status"><LoaderCircle size={12} className="spin" />正在获取音色与模型…</p>}{warning && <p className="generation-catalog-warning" role="status">{warning}</p>}
-          <div className="generation-scope-note"><FilmNote /><p>这些设置只影响当前章节。<br />其他章节的视频与设置会保留。</p></div>
+          <div className="generation-scope-note"><FilmNote /><p>保存后，后续未配置的章节会自动沿用。<br />其他已有视频或独立设置的章节保留原参数。</p></div>
         </aside></div>
       </div>
       <div id="generation-library-panel" role="tabpanel" hidden={tab !== 'library'}>{tab === 'library' && <ComponentGallery theme={value.theme} onCreative={() => { set('creationMode', 'creative'); setTab('settings'); }} />}</div>

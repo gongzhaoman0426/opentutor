@@ -117,7 +117,9 @@ test('persists per-chapter configuration, auditions the selected voice, and subm
   await modal.getByRole('button', { name: '保存设置', exact: true }).click();
   await expect(modal).toHaveCount(0);
   expect(data.getProject().chapters![0].settings).toMatchObject({ resolution: '1080p', voice: 'zh-CN-YunxiNeural', theme: 'ocean', model: 'catalog-model-creative', creationMode: 'creative', stylePrompt: '蓝白配色、留白充足，用橙色强调关键元素。', videoIntent: 'product', creativeBrief: '面向首次使用的新用户，先呈现问题，再展示操作，不添加原稿没有的功能。', audience: '第一次使用产品的用户' });
-  expect(data.getProject().chapters![1].settings).toBeUndefined();
+  expect(data.getProject().settings).toEqual(data.getProject().chapters![0].settings);
+  expect(data.getProject().chapters![1].settings).toEqual(defaultSettings);
+  expect(isChapterVideoCurrent(data.getProject(), 'chapter-b')).toBe(true);
   await page.reload();
   await page.getByRole('button', { name: '更新视频', exact: true }).click();
   await expect(page.getByLabel('视频分辨率')).toHaveValue('1080p');
@@ -129,6 +131,51 @@ test('persists per-chapter configuration, auditions the selected voice, and subm
   await expect.poll(() => data.submitted.length).toBe(1);
   expect(data.submitted[0]).toMatchObject({ kind: 'preview', chapterId: 'chapter-a', expectedRevision: data.getProject().revision });
   await expect(page.getByRole('tab', { name: '视频', exact: true })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('remembers saved settings for subsequent chapters and new chapters across reloads', async ({ page }) => {
+  const data = await fixture(page);
+  data.getProject().chapterVideos = {};
+  data.getProject().chapterJobs = {};
+  data.getProject().latestJob = null;
+  data.getProject().chapters!.push({ id: 'chapter-custom', title: '独立参数', markdown: '# 已配置', settings: { ...defaultSettings, rate: 25 } });
+  await page.goto(`/projects/${data.id}`);
+  await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
+  const modal = page.getByRole('dialog');
+  await expect(modal).toContainText('后续未配置的章节会自动沿用');
+  await modal.getByLabel('视频分辨率').selectOption('1080p');
+  await modal.getByLabel('微软免费配音').selectOption('zh-CN-YunxiNeural');
+  await modal.getByLabel('AI 模型').selectOption('catalog-model-creative');
+  await modal.getByRole('button', { name: '创作模式', exact: false }).click();
+  await modal.getByLabel('风格描述').fill('蓝白配色，统一视觉');
+  await modal.getByRole('button', { name: '保存设置', exact: true }).click();
+  await expect(modal).toHaveCount(0);
+  expect(data.getProject().chapters![1].settings).toBeUndefined();
+  expect(data.getProject().chapters![2].settings?.rate).toBe(25);
+  await page.reload();
+  await page.getByRole('navigation', { name: '项目章节' }).getByRole('button', { name: '02 细胞核' }).click();
+  await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
+  await expect(modal.getByLabel('视频分辨率')).toHaveValue('1080p');
+  await expect(modal.getByLabel('微软免费配音')).toHaveValue('zh-CN-YunxiNeural');
+  await expect(modal.getByLabel('AI 模型')).toHaveValue('catalog-model-creative');
+  await expect(modal.getByRole('button', { name: '创作模式', exact: false })).toHaveAttribute('aria-pressed', 'true');
+  await expect(modal.getByLabel('风格描述')).toHaveValue('蓝白配色，统一视觉');
+  await modal.getByLabel('风格描述').fill('蓝白配色，强调标题');
+  await modal.getByRole('button', { name: '生成本章视频', exact: true }).click();
+  await expect.poll(() => data.submitted.length).toBe(1);
+  expect(data.submitted[0].chapterId).toBe('chapter-b');
+  expect(data.getProject().settings.stylePrompt).toBe('蓝白配色，强调标题');
+  expect(data.getProject().chapters![0].settings?.stylePrompt).toBe('蓝白配色，统一视觉');
+  await page.getByRole('button', { name: '添加章节', exact: true }).click();
+  await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
+  await expect(modal.getByLabel('视频分辨率')).toHaveValue('1080p');
+  await expect(modal.getByLabel('微软免费配音')).toHaveValue('zh-CN-YunxiNeural');
+  await expect(modal.getByLabel('风格描述')).toHaveValue('蓝白配色，强调标题');
+  await modal.getByRole('button', { name: '关闭生成设置' }).click();
+  await page.getByRole('navigation', { name: '项目章节' }).getByRole('button', { name: '03 独立参数' }).click();
+  await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
+  await expect(modal.getByLabel('视频分辨率')).toHaveValue(defaultSettings.resolution);
+  await expect(modal.getByLabel('配音语速')).toHaveValue('25');
 });
 
 test('previews all preset components and actual animated JavaScript SVG components', async ({ page }) => {

@@ -20,6 +20,7 @@
 ## 章节生成与模式扩展（v0.4）
 
 - `Chapter.settings` 保存章节参数，未设置时继承项目默认；新增 `model`、`creationMode` 和 `stylePrompt`。章节任务带 `chapterId`，输入快照只编排目标章节，`context` 保留全项目关系。
+- 章节配置保存时，当前章独立参数与 `Project.settings` 最新默认值一起写入同一项目修订。后续未配置章节保持继承；前序章节及已有视频／活动任务的章节在默认变化前固定此前有效设置，保留输入指纹。服务端按数据库中的视频和活动任务补充保护，防止客户端尚未收到任务状态时误使结果过期。新建与导入章节继承最新项目默认；不同项目互不影响。
 - `Project.chapterVideos[chapterId]` 独立保存 lesson、renderPlan、previewAssets、settings、sourceKey 和 latestExport。sourceKey 基于本章正文、标题、参数、引用素材实际哈希及继承图片定义；无关章修改不影响本章输出。导出使用对应章节冻结预览，不能串用整项目或其他章节音轨。
 - 模型目录经 Codex app-server `initialize` / `model/list` 获取，有限缓存和超时；选择的模型传入图片理解、全项目概览、编排与修复，并进入缓存指纹。目录不等于账号授权验证。[官方模型目录说明](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server)
 - 稳定模式的生成 schema 排除 `custom`，校验也禁止自定义对象。创作模式允许 `custom.content` 保存最多 12000 字符 JavaScript 函数体，使用 frame/fps/width/height/progress/theme 返回 SVG。

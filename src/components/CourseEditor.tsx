@@ -13,6 +13,7 @@ import { CreationPreview } from './CreationPreview';
 import { HistoricalCoursePreview } from './HistoricalCoursePreview';
 import { GenerationSettingsDialog } from './GenerationSettingsDialog';
 import { formatRenderProgress } from '@/shared/render-progress';
+import { mergeProtectedChapterSettings, rememberChapterSettings } from '@/shared/chapter-settings';
 
 type Draft = ProjectSnapshot & { chapters: Chapter[] };
 type Cursor = { chapterId: string; start: number; end: number; markdown: string };
@@ -118,8 +119,9 @@ export function CourseEditor({ id }: { id: string }) {
         if (epoch === editEpoch.current) { draftRef.current = saved; dirtyRef.current = false; setDraft(saved); }
         else if (draftRef.current) {
           const local = draftRef.current;
-          const chaptersChanged = JSON.stringify(local.chapters) !== JSON.stringify(saved.chapters);
-          const pending = { ...local, revision: next.revision, sourceMode: saved.sourceMode, lesson: chaptersChanged ? null : saved.lesson, assets: local.assets.map(asset => saved.assets.find(value => value.id === asset.id) ?? asset) };
+          const chapters = mergeProtectedChapterSettings(local.chapters, current.chapters, saved.chapters);
+          const chaptersChanged = JSON.stringify(chapters) !== JSON.stringify(saved.chapters);
+          const pending = { ...local, chapters, revision: next.revision, sourceMode: saved.sourceMode, lesson: chaptersChanged ? null : saved.lesson, assets: local.assets.map(asset => saved.assets.find(value => value.id === asset.id) ?? asset) };
           draftRef.current = pending; dirtyRef.current = identity(pending) !== baseRef.current; setDraft(pending);
         }
         setJob(value => next.latestJob ?? (value && activeStatus(value.status) ? value : null));
@@ -203,7 +205,7 @@ export function CourseEditor({ id }: { id: string }) {
   const applySettings = async (settings: GenerationSettings, generate: boolean) => {
     const targetId = settingsChapter?.id;
     if (!targetId) return;
-    change(value => ({ ...value, chapters: value.chapters.map(item => item.id === targetId ? { ...item, settings } : item) }));
+    change(value => ({ ...value, ...rememberChapterSettings({ ...project, ...value }, targetId, settings) }));
     const saved = await save();
     if (!saved) throw new Error('设置暂未保存，请处理保存提示后重试。');
     setSettingsChapter(null);

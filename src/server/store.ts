@@ -169,7 +169,19 @@ export async function updateProject(id: string, value: unknown): Promise<Project
     const old = await lockedProject(c, id);
     if (old.revision !== input.expectedRevision) throw new AppError(409, 'REVISION_CONFLICT', '项目已更新，请刷新后重试，避免覆盖新内容');
     const assets = await assertAssets(c, input.assets);
-    const chapters = input.chapters ?? splitMarkdownChapters(input.markdown);
+    let chapters = input.chapters ?? splitMarkdownChapters(input.markdown);
+    if (input.chapters && JSON.stringify(old.settings) !== JSON.stringify(input.settings)) {
+      // A client may not have received a newly submitted job yet. Preserve its
+      // effective settings using transactional state before changing the default.
+      const active = await c.query("SELECT data->>'chapterId' AS chapter_id FROM jobs WHERE project_id=$1 AND data->>'status' IN ('queued','running','cancelling') AND data->>'chapterId' IS NOT NULL", [id]);
+      const started = new Set<string>(active.rows.map(row => row.chapter_id));
+      const previous = new Map(getProjectChapters(old).map(chapter => [chapter.id, chapter]));
+      chapters = chapters.map(chapter => {
+        const saved = previous.get(chapter.id);
+        if (chapter.settings || !saved || (!old.chapterVideos?.[chapter.id] && !started.has(chapter.id))) return chapter;
+        return { ...chapter, settings: SettingsSchema.parse(saved.settings ?? old.settings) };
+      });
+    }
     const markdown = input.chapters ? chapterMarkdown(chapters) : input.markdown;
     const sourceMode = input.chapters ? 'chapters' : 'legacy';
     const changedSource = old.markdown !== markdown || old.sourceMode !== sourceMode || (input.chapters !== undefined && chapterIdentity(getProjectChapters(old)) !== chapterIdentity(chapters));

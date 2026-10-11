@@ -454,6 +454,51 @@ describe('durable PostgreSQL task transactions', () => {
     expect((await store.getProject(p.id)).chapterVideos!.b.current).toBe(true);
     await store.deleteProject(p.id);
   });
+  it('applies saved defaults to later chapter jobs while preserving existing videos and explicit choices', async () => {
+    const independent = SettingsSchema.parse({ theme: 'ocean', voice: 'zh-CN-YunxiNeural' });
+    let p = await store.createProject({ title: '记住生成设置', chapters: [
+      { id: 'a', title: '当前章节', markdown: '当前正文' }, { id: 'b', title: '已有视频', markdown: '已有正文' },
+      { id: 'c', title: '后续章节', markdown: '后续正文' }, { id: 'd', title: '独立设置', markdown: '独立正文', settings: independent },
+    ] });
+    const original = p.settings;
+    const preview = await store.submitJob(p.id, { kind: 'preview', chapterId: 'b', expectedRevision: p.revision });
+    const owner = await store.claimJob(preview.id); const audio = await registeredAudio(p);
+    await store.completeJob(preview.id, chapterResult(p, preview, audio.url), owner!.leaseToken); p = await store.getProject(p.id);
+    const next = SettingsSchema.parse({ ...original, theme: 'sunset', resolution: '1080p', videoIntent: 'product', creativeBrief: '围绕实际使用体验展开。' });
+    p = await store.updateProject(p.id, { ...patch(p), settings: next, chapters: p.chapters!.map(chapter => chapter.id === 'a' ? { ...chapter, settings: next } : chapter) });
+    p = await store.getProject(p.id);
+    expect(p.settings).toEqual(next); expect(p.chapters![0].settings).toEqual(next);
+    expect(p.chapters![1].settings).toEqual(original); expect(p.chapterVideos!.b.current).toBe(true);
+    expect(p.chapters![2].settings).toBeUndefined(); expect(p.chapters![3].settings).toEqual(independent);
+    const later = await store.submitJob(p.id, { kind: 'preview', chapterId: 'c', expectedRevision: p.revision });
+    const exported = await store.submitJob(p.id, { kind: 'export', chapterId: 'b', expectedRevision: p.revision });
+    expect(later.snapshot.settings).toEqual(next); expect(exported.snapshot.settings).toEqual(original);
+    await store.cancelJob(later.id); await store.cancelJob(exported.id);
+    const explicit = SettingsSchema.parse({ ...next, theme: 'ocean' });
+    p = await store.updateProject(p.id, { ...patch(p), settings: explicit, chapters: p.chapters!.map(chapter => chapter.id === 'b' ? { ...chapter, settings: explicit } : chapter) });
+    expect(p.chapters![1].settings).toEqual(explicit); expect(p.chapterVideos!.b.current).toBe(false);
+    await store.deleteProject(p.id);
+  });
+  it('keeps unseen queued, running and cancelling chapters on their frozen settings when defaults change', async () => {
+    let p = await store.createProject({ title: '设置与后台任务竞争', chapters: ['a', 'queued', 'running', 'cancelling', 'future'].map(id => ({ id, title: id, markdown: `${id} 正文` })) });
+    const original = p.settings;
+    const queued = await store.submitJob(p.id, { kind: 'preview', chapterId: 'queued', expectedRevision: p.revision });
+    const running = await store.submitJob(p.id, { kind: 'preview', chapterId: 'running', expectedRevision: p.revision }); const runner = await store.claimJob(running.id);
+    const cancelling = await store.submitJob(p.id, { kind: 'preview', chapterId: 'cancelling', expectedRevision: p.revision }); const canceller = await store.claimJob(cancelling.id); await store.cancelJob(cancelling.id);
+    // Deliberately submit the project read before any of these jobs existed.
+    const next = SettingsSchema.parse({ ...original, theme: 'ocean', voice: 'zh-CN-YunxiNeural', resolution: '1080p' });
+    p = await store.updateProject(p.id, { ...patch(p), settings: next, chapters: p.chapters!.map(chapter => chapter.id === 'a' ? { ...chapter, settings: next } : chapter) });
+    for (const id of ['queued', 'running', 'cancelling']) expect(p.chapters!.find(chapter => chapter.id === id)!.settings).toEqual(original);
+    const audio = await registeredAudio(p); const queueOwner = await store.claimJob(queued.id);
+    expect((await store.completeJob(queued.id, chapterResult(p, queued, audio.url), queueOwner!.leaseToken)).outputRevision).not.toBeNull();
+    expect((await store.completeJob(running.id, chapterResult(p, running, audio.url), runner!.leaseToken)).outputRevision).not.toBeNull();
+    await store.markJobCancelled(cancelling.id, canceller!.leaseToken);
+    p = await store.getProject(p.id);
+    expect(p.chapterVideos!.queued.current).toBe(true); expect(p.chapterVideos!.running.current).toBe(true);
+    const future = await store.submitJob(p.id, { kind: 'preview', chapterId: 'future', expectedRevision: p.revision });
+    expect(future.snapshot.settings).toEqual(next); expect((await store.getJob(running.id)).snapshot.settings).toEqual(original);
+    await store.cancelJob(future.id); await store.deleteProject(p.id);
+  });
   it('freezes chapter-owned settings and allows independent chapters to queue while deduplicating one chapter', async () => {
     const a = SettingsSchema.parse({ resolution: '720p', voice: 'zh-CN-XiaoxiaoNeural', creationMode: 'creative', model: 'model-a', theme: 'ocean', stylePrompt: '蓝色几何图解' });
     const b = SettingsSchema.parse({ resolution: '1080p', voice: 'zh-CN-YunxiNeural', model: 'model-b', theme: 'sunset' });
