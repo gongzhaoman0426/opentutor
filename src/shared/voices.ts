@@ -1,3 +1,5 @@
+import type { UiLocale } from '../i18n/config';
+
 /** Locale and ShortName formats returned by Microsoft's free voice catalogue. */
 export const VOICE_LOCALE_PATTERN = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){1,3}$/;
 export const VOICE_NAME_PATTERN = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){1,3}-[A-Za-z][A-Za-z0-9]*Neural$/;
@@ -13,24 +15,30 @@ const languageNames: Record<string, string> = {
   'zh-CN-liaoning': '中文（东北话）', 'zh-CN-shaanxi': '中文（陕西话）',
   'iu-Cans-CA': '因纽特语（加拿大，音节文字）', 'iu-Latn-CA': '因纽特语（加拿大，拉丁字母）',
 };
-export function languageLabel(locale: string): string {
-  if (languageNames[locale]) return languageNames[locale];
-  try { return new Intl.DisplayNames(['zh-CN'], { type: 'language' }).of(locale) || locale; }
+const englishLanguageNames: Record<string, string> = {
+  'zh-CN': 'Chinese (Mandarin)', 'zh-TW': 'Chinese (Taiwan)', 'zh-HK': 'Chinese (Cantonese, Hong Kong)',
+  'zh-CN-liaoning': 'Chinese (Northeastern Mandarin)', 'zh-CN-shaanxi': 'Chinese (Shaanxi Mandarin)',
+  'iu-Cans-CA': 'Inuktitut (Canada, syllabics)', 'iu-Latn-CA': 'Inuktitut (Canada, Latin)',
+};
+export function languageLabel(locale: string, uiLocale: UiLocale = 'zh-CN'): string {
+  const names = uiLocale === 'en' ? englishLanguageNames : languageNames;
+  if (names[locale]) return names[locale];
+  try { return new Intl.DisplayNames([uiLocale], { type: 'language' }).of(locale) || locale; }
   catch { return locale; }
 }
 
 const voiceNames: Record<string, string> = { Xiaoxiao: '晓晓', Xiaoyi: '晓伊', Yunjian: '云健', Yunxi: '云希', Yunxia: '云夏', Yunyang: '云扬' };
-export function voiceLabel(voice: Voice): string {
+export function voiceLabel(voice: Voice, uiLocale: UiLocale = 'zh-CN'): string {
   const name = voice.name.slice(voice.locale.length + 1).replace(/Neural$/, '');
-  const gender = voice.gender === 'Female' ? '女声' : voice.gender === 'Male' ? '男声' : voice.gender;
-  return [voiceNames[name] || name, gender].filter(Boolean).join(' · ');
+  const gender = voice.gender === 'Female' ? uiLocale === 'en' ? 'Female' : '女声' : voice.gender === 'Male' ? uiLocale === 'en' ? 'Male' : '男声' : voice.gender;
+  return [uiLocale === 'en' ? name : voiceNames[name] || name, gender].filter(Boolean).join(' · ');
 }
 
 const preferredLanguages = ['zh-CN', 'zh-TW', 'zh-HK', 'en-US', 'en-GB', 'ja-JP', 'ko-KR', 'fr-FR', 'de-DE', 'es-ES'];
-export function availableLanguages(voices: Voice[]): { locale: string; label: string }[] {
+export function availableLanguages(voices: Voice[], uiLocale: UiLocale = 'zh-CN'): { locale: string; label: string }[] {
   const rank = (locale: string) => { const index = preferredLanguages.indexOf(locale); return index < 0 ? preferredLanguages.length : index; };
-  return [...new Set(voices.map(voice => voice.locale))].map(locale => ({ locale, label: languageLabel(locale) }))
-    .sort((a, b) => rank(a.locale) - rank(b.locale) || a.label.localeCompare(b.label, 'zh-CN') || a.locale.localeCompare(b.locale));
+  return [...new Set(voices.map(voice => voice.locale))].map(locale => ({ locale, label: languageLabel(locale, uiLocale) }))
+    .sort((a, b) => rank(a.locale) - rank(b.locale) || a.label.localeCompare(b.label, uiLocale) || a.locale.localeCompare(b.locale));
 }
 
 const preferredVoices: Record<string, string> = {

@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GenerationSettings, SpeechResult } from '@/shared/schema';
 import { api, errorMessage } from './api';
+import { useI18n } from '@/i18n/provider';
 
 export function useVoicePreview({ language, voice, rate }: Pick<GenerationSettings, 'language' | 'voice' | 'rate'>) {
+  const { locale } = useI18n('settings');
   const audio = useRef<HTMLAudioElement>(null);
   const request = useRef<{ sequence: number; controller?: AbortController }>({ sequence: 0 });
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<unknown>(null);
   const [result, setResult] = useState<{ key: string; speech: SpeechResult } | null>(null);
   const key = JSON.stringify([language, voice, rate]);
   const speech = result?.key === key ? result.speech : null;
@@ -21,7 +23,7 @@ export function useVoicePreview({ language, voice, rate }: Pick<GenerationSettin
   }, []);
   const cancel = useCallback(() => {
     invalidate();
-    setResult(null); setBusy(false); setError('');
+    setResult(null); setBusy(false); setError(null);
   }, [invalidate]);
 
   // Also handles a parent replacing saved settings, not only local select changes.
@@ -38,11 +40,11 @@ export function useVoicePreview({ language, voice, rate }: Pick<GenerationSettin
       const response = await api<{ speech: SpeechResult }>('/api/voices/preview', { method: 'POST', body: JSON.stringify({ voice, rate }), signal: controller.signal });
       if (request.current.sequence === sequence && !controller.signal.aborted) setResult({ key, speech: response.speech });
     } catch (failure) {
-      if (request.current.sequence === sequence && !controller.signal.aborted) setError(errorMessage(failure));
+      if (request.current.sequence === sequence && !controller.signal.aborted) setError(failure);
     } finally {
       if (request.current.sequence === sequence) { request.current.controller = undefined; setBusy(false); }
     }
   };
 
-  return { audio, speech, busy, error, preview, cancel };
+  return { audio, speech, busy, error: error ? errorMessage(error, locale) : '', preview, cancel };
 }

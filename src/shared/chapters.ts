@@ -26,23 +26,23 @@ export function createEmptyChapter(title = '新章节'): Chapter {
 }
 
 /** Split imported notes without treating headings inside fenced code as chapters. */
-export function splitMarkdownChapters(markdown: string): Chapter[] {
+export function splitMarkdownChapters(markdown: string, labels: { untitled?: string; imported?: string; introduction?: string } = {}): Chapter[] {
   const document = unified().use(remarkParse).use(remarkGfm).use(remarkMath).parse(markdown) as Root;
   const headings: Heading[] = document.children.filter(node => node.type === 'heading' && node.depth <= 2).map(node => {
     if (node.type !== 'heading') throw new Error('Unexpected Markdown node');
-    return { offset: node.position?.start.offset ?? 0, level: node.depth as 1 | 2, title: toString(node).slice(0, 120) || '未命名章节' };
+    return { offset: node.position?.start.offset ?? 0, level: node.depth as 1 | 2, title: toString(node).slice(0, 120) || labels.untitled || '未命名章节' };
   });
   const h1 = headings.filter(h => h.level === 1);
   const h2 = headings.filter(h => h.level === 2);
   const selected = h1.length > 1 ? h1 : h2.length > 1 ? h2 : h1.length ? h1 : h2;
-  if (!selected.length) return [{ id: `chapter-1-${fingerprint(markdown)}`, title: '导入素材', markdown }];
+  if (!selected.length) return [{ id: `chapter-1-${fingerprint(markdown)}`, title: labels.imported || '导入素材', markdown }];
   const segments: { title: string; markdown: string }[] = [];
   const prefix = markdown.slice(0, selected[0].offset);
   // A standalone course heading belongs with its first chapter. Keep actual
   // introductory prose as a separate chapter instead of dropping it.
   const prefixBody = prefix.replace(/^ {0,3}#{1,2}(?:[\t ]+|$).*$/gm, '').trim();
   const attachPrefix = !prefixBody;
-  if (prefix.trim() && !attachPrefix) segments.push({ title: headings.find(h => h.offset < selected[0].offset)?.title || '导入', markdown: prefix });
+  if (prefix.trim() && !attachPrefix) segments.push({ title: headings.find(h => h.offset < selected[0].offset)?.title || labels.introduction || '导入', markdown: prefix });
   selected.forEach((heading, index) => {
     segments.push({ title: heading.title, markdown: (index === 0 && attachPrefix ? prefix : '') + markdown.slice(heading.offset, selected[index + 1]?.offset ?? markdown.length) });
   });

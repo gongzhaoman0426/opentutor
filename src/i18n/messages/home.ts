@@ -1,0 +1,33 @@
+export const zh = {
+  engineReady: '引擎已就绪', servicesPending: '服务待连接', connecting: '正在连接', personalWorkspace: '个人工作空间', avatar: '我',
+  eyebrow: '我的视频工作室', title: '我的项目', introduction: '产品介绍、信息汇报、故事叙述或知识讲解。从 Markdown 开始，每章生成一个视频。',
+  createProject: '创建项目', servicesNotice: '工作室已打开，生成服务还在等待连接。', recheck: '重新检查',
+  healthDatabase: '数据库', healthRedis: '任务队列', healthWorker: '后台 Worker', healthCodex: 'Codex', healthSpeech: '微软 TTS',
+  projectList: '项目列表', filterLabel: '项目筛选', filterAll: '全部', filterReady: '可预览', filterRunning: '生成中', search: '搜索项目', loading: '正在打开你的工作室…',
+  fullMode: '完整呈现', summaryMode: '重点摘要', videoNumber: '视频 {{number}}', motif: '创', openProject: '进入项目',
+  taskFailed: '任务失败', previewReady: '可预览', needsUpdate: '待更新', historicalPreview: '历史完整预览', draft: '草稿', draftRevision: '文稿修订 {{revision}}',
+  chapterCount_one: '{{count}} 个章节', chapterCount_other: '{{count}} 个章节', videoCount_one: '{{count}} 个章节视频', videoCount_other: '{{count}} 个章节视频',
+  historicalVideo: '历史完整视频', waitingToGenerate: '等待生成', updated: '{{date}} 更新', copyTitle: '复制项目文稿与设置', copyProject: '复制 {{title}}',
+  deleteTitle: '删除项目', deleteProject: '删除 {{title}}', copySuffix: ' · 副本',
+  newProject: '开始一个新项目', newProjectHint: '导入文稿，让想法成为视频', noMatches: '这里还没有匹配的项目', noMatchesHint: '试试其他关键词，或查看全部项目。', showAll: '查看全部',
+  firstVideo: '第一个视频，从这里开始。', firstVideoHint: '已有文稿就够了。上传 Markdown，', firstVideoDetail: '把产品、观点和故事变成清晰、生动的视频。', firstProject: '创建我的第一个项目',
+  footer: '认真讲好每一个想法。', openSource: '开源创作，为你的想法而生。',
+  deleteHeading: '删除这个项目？', deleteWarning: '「{{title}}」及其项目记录将被删除。这个操作无法撤销。', keepProject: '保留项目', deleting: '正在删除…', confirmDelete: '确认删除',
+};
+
+export const en: Record<keyof typeof zh, string> = {
+  engineReady: 'Engine ready', servicesPending: 'Services unavailable', connecting: 'Connecting', personalWorkspace: 'Personal workspace', avatar: 'Me',
+  eyebrow: 'YOUR VIDEO STUDIO', title: 'My projects', introduction: 'Product introductions, reports, stories, and explainers. Start with Markdown and create a video for each chapter.',
+  createProject: 'Create project', servicesNotice: 'The studio is open. Generation services are still connecting.', recheck: 'Check again',
+  healthDatabase: 'Database', healthRedis: 'Task queue', healthWorker: 'Background worker', healthCodex: 'Codex', healthSpeech: 'Microsoft TTS',
+  projectList: 'Projects', filterLabel: 'Filter projects', filterAll: 'All', filterReady: 'Ready to preview', filterRunning: 'Generating', search: 'Search projects', loading: 'Opening your studio…',
+  fullMode: 'Full presentation', summaryMode: 'Key highlights', videoNumber: 'VIDEO {{number}}', motif: 'C', openProject: 'Open project',
+  taskFailed: 'Task failed', previewReady: 'Ready to preview', needsUpdate: 'Needs update', historicalPreview: 'Previous full preview', draft: 'Draft', draftRevision: 'Draft revision {{revision}}',
+  chapterCount_one: '{{count}} chapter', chapterCount_other: '{{count}} chapters', videoCount_one: '{{count}} chapter video', videoCount_other: '{{count}} chapter videos',
+  historicalVideo: 'Previous full video', waitingToGenerate: 'Not generated yet', updated: 'Updated {{date}}', copyTitle: 'Duplicate project text and settings', copyProject: 'Duplicate {{title}}',
+  deleteTitle: 'Delete project', deleteProject: 'Delete {{title}}', copySuffix: ' · Copy',
+  newProject: 'Start a new project', newProjectHint: 'Import your text and turn ideas into video', noMatches: 'No matching projects', noMatchesHint: 'Try another search or view all projects.', showAll: 'View all',
+  firstVideo: 'Your first video starts here.', firstVideoHint: 'Your text is all you need. Upload Markdown', firstVideoDetail: 'and turn products, ideas, and stories into clear, engaging videos.', firstProject: 'Create my first project',
+  footer: 'Give every idea a clear voice.', openSource: 'Open source. Made for your ideas.',
+  deleteHeading: 'Delete this project?', deleteWarning: '“{{title}}” and its project records will be deleted. This cannot be undone.', keepProject: 'Keep project', deleting: 'Deleting…', confirmDelete: 'Delete project',
+};

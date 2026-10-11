@@ -1,3 +1,6 @@
+import type { UiLocale } from '../i18n/config';
+import { translateUi } from '../i18n/translate';
+
 /** Frame counts describe browser rendering; encoding and muxing have no comparable frame counter. */
 export interface RenderProgress {
   phase: 'preparing' | 'rendering' | 'encoding' | 'muxing';
@@ -14,15 +17,18 @@ export const renderPhaseLabels: Record<RenderProgress['phase'], string> = {
   muxing: '合成音视频',
 };
 
-export function formatRenderProgress(progress: RenderProgress, options: { completed?: boolean } = {}): string {
-  const parts = [options.completed ? '导出完成' : renderPhaseLabels[progress.phase]];
+export function formatRenderProgress(progress: RenderProgress, options: { completed?: boolean; locale?: UiLocale } = {}): string {
+  const locale = options.locale ?? 'zh-CN';
+  const t = (key: string, values?: Record<string, string | number>) => translateUi(locale, `render.${key}`, values);
+  const parts = [t(options.completed ? 'completed' : progress.phase)];
   if (progress.phase !== 'preparing' && progress.totalFrames > 0) {
-    parts.push(`画面 ${progress.renderedFrames.toLocaleString('zh-CN')}/${progress.totalFrames.toLocaleString('zh-CN')} 帧`);
+    parts.push(t('frames', { rendered: progress.renderedFrames.toLocaleString(locale), total: progress.totalFrames.toLocaleString(locale) }));
   }
   if (!options.completed && progress.phase === 'rendering' && progress.framesPerSecond !== undefined && Number.isFinite(progress.framesPerSecond) && progress.framesPerSecond > 0) {
-    parts.push(`${progress.framesPerSecond.toFixed(1)} 帧/秒`);
+    parts.push(t('speed', { speed: progress.framesPerSecond.toFixed(1) }));
   }
   const seconds = Math.max(0, Math.floor(progress.elapsedMs / 1000));
-  parts.push(`${options.completed ? '用时' : '已用'} ${seconds >= 60 ? `${Math.floor(seconds / 60)} 分 ` : ''}${seconds % 60} 秒`);
+  const time = seconds >= 60 ? t('minutesSeconds', { minutes: Math.floor(seconds / 60), seconds: seconds % 60 }) : t('seconds', { seconds });
+  parts.push(t(options.completed ? 'duration' : 'elapsed', { time }));
   return parts.join(' · ');
 }

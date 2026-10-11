@@ -56,6 +56,8 @@
 
 ## 2. 总体架构
 
+界面国际化使用 `i18next` 与 `react-i18next`，词典位于 `src/i18n/messages/`，按 common、errors、home、editor、settings、preview、studio 分命名空间维护中英文键与插值。根布局通过 Next.js 异步 `cookies()` 读取 `opentutor-ui-locale`，将校验后的 `zh-CN`／`en` 传入每棵 React 树独立的 Provider，同步初始化本地词典，避免服务端请求之间的语言串用和水合闪烁。切换仅更新实例语言、根元素 `lang`、页面标题与 cookie，不执行路由刷新或项目写入。播放器输入、自动保存与任务轮询不依赖界面语言。`settings.language` 仍专用于生成视频；界面词典不进入 AI 提示词和生成缓存。结构化 API 错误通过错误码翻译，未知服务／模型诊断保留原文。
+
 采用 Web/API、后台 Worker、持久化基础设施三部分。首版 API 可以与 Next.js Web 同仓部署，生成和渲染必须在独立 Worker 中运行。
 
 ```mermaid

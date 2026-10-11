@@ -369,7 +369,7 @@ test('previews all preset components and actual animated JavaScript SVG componen
   const content = () => svg.evaluate(node => node.tagName === 'IMG' ? node.getAttribute('src') ?? '' : node.innerHTML);
   const first = await content();
   expect(first.startsWith('data:') ? decodeURIComponent(first) : first).toContain('<polyline');
-  await modal.locator('.component-gallery-player').getByRole('button', { name: 'Play video' }).click();
+  await modal.locator('.component-gallery-player').getByRole('button', { name: '播放预览' }).click();
   await expect.poll(content).not.toBe(first);
   await modal.locator('.component-gallery-intro').scrollIntoViewIfNeeded();
   await mkdir('.data/verification', { recursive: true });

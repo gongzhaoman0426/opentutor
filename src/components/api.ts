@@ -1,7 +1,11 @@
 'use client';
 
+import { type UiLocale } from '../i18n/config';
+import { translateUi } from '../i18n/translate';
+import { en as errorTranslations } from '../i18n/messages/errors';
+
 export class ApiError extends Error {
-  constructor(message: string, public status: number) { super(message); }
+  constructor(message: string, public status: number, public code?: string) { super(message); }
 }
 
 export async function api<T>(url: string, init: RequestInit = {}): Promise<T> {
@@ -11,17 +15,20 @@ export async function api<T>(url: string, init: RequestInit = {}): Promise<T> {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = typeof body.error === 'string' ? body.error : body.error?.message || body.message || `请求失败（${response.status}）`;
-    throw new ApiError(message, response.status);
+    const message = typeof body.error === 'string' ? body.error : body.error?.message || body.message || translateUi('zh-CN', 'requestFailed', { status: response.status });
+    throw new ApiError(message, response.status, body.error?.code ?? (typeof body.error !== 'string' && !body.error?.message && !body.message ? 'REQUEST_FAILED' : undefined));
   }
   return body as T;
 }
 
-export const errorMessage = (error: unknown) => error instanceof Error ? error.message : '发生了未知错误，请重试。';
-export const formatDate = (value: string) => new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(new Date(value));
+export const errorMessage = (error: unknown, locale: UiLocale = 'zh-CN') => {
+  if (error instanceof ApiError && error.code === 'REQUEST_FAILED') return translateUi(locale, 'requestFailed', { status: error.status });
+  if (locale === 'en' && error instanceof ApiError && error.code && Object.hasOwn(errorTranslations, error.code)) return translateUi(locale, `errors:${error.code}`);
+  return error instanceof Error ? error.message : translateUi(locale, 'unknownError');
+};
+export const formatDate = (value: string, locale: UiLocale = 'zh-CN') => new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(new Date(value));
 export const formatTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 export const activeStatus = (status?: string) => ['queued', 'running', 'cancelling'].includes(status ?? '');
-export const jobLabels: Record<string, string> = { queued: '等待开始', running: '正在生成', cancelling: '正在取消', cancelled: '已取消', succeeded: '已完成', failed: '生成失败' };
 
 export const sampleMarkdown = `# 理解复利：时间如何放大增长
 

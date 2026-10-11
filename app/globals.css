@@ -230,7 +230,7 @@ input[type='range'] { width: 100%; accent-color: var(--sage); height: 4px; margi
 .modal-footer > span { max-width: 430px; font-size: 12px; line-height: 1.65; color: var(--muted); }
 .modal-footer .button { font-size: 12px; }
 .session-card { width: 400px; padding: 30px; }
-.session-card > svg { color: var(--body); }
+.session-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--body); }
 .session-card h2 { color: var(--ink); font-family: var(--serif); font-size: 22px; margin-top: 12px; font-weight: 500; }
 .session-card > p { margin: 15px 0 22px; font-size: 12px; line-height: 1.7; }
 .session-card .button { margin-top: 17px; }
@@ -934,3 +934,13 @@ input[type='checkbox'] { accent-color: var(--sage); width: 11px; height: 11px; m
 .historical-course-content > video { width: 100%; max-height: 65dvh; background: #172421; border-radius: 7px; }
 .historical-course-content > p { color: var(--muted); font-size: 12px; line-height: 1.8; padding-top: 17px; }
 @media (max-width: 700px) { .historical-course-dialog { max-height: calc(100dvh - 24px); } .historical-course-content { padding: 0 15px 20px; } .historical-course-content .creation-preview-toolbar > div > span:last-child { display: none; } }
+
+.ui-language-switcher { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; color: var(--body); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: #fff; }
+.ui-language-switcher select { width: auto; min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font-size: 12px; cursor: pointer; }
+.ui-language-switcher:focus-within { outline: 2px solid var(--sage); outline-offset: 2px; }
+.ui-language-switcher select:focus { outline: 0; box-shadow: none; }
+html[lang="en"] .button { white-space: nowrap; }
+html[lang="en"] .generation-mode-options strong { line-height: 1.4; }
+html[lang="en"] .revision-label { white-space: nowrap; }
+@media (max-width: 700px) { .ui-language-switcher { padding: 5px; gap: 3px; } .ui-language-switcher select { font-size: 11px; } .chapter-course-actions .ui-language-switcher > svg { display: none; } }
+@media (max-width: 500px) { .chapter-course-header { flex-wrap: wrap; height: auto; flex-basis: auto; min-height: 88px; padding-top: 8px; padding-bottom: 8px; gap: 5px; } .chapter-course-name { flex-basis: 100%; } .chapter-course-actions { width: 100%; justify-content: flex-end; } .course-home .topbar-right { gap: 8px; } .course-home .user-avatar { display: none; } }
