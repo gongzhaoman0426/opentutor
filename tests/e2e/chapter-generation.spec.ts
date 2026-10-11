@@ -19,6 +19,18 @@ const test = base.extend<{ downloadOrigin: string }>({
   },
 });
 
+const voiceCatalog = [
+  { name: 'zh-CN-XiaoxiaoNeural', locale: 'zh-CN', gender: 'Female', displayName: '晓晓' },
+  { name: 'zh-CN-YunxiNeural', locale: 'zh-CN', gender: 'Male', displayName: '云希' },
+  { name: 'en-US-AriaNeural', locale: 'en-US', gender: 'Female', displayName: 'Aria' },
+  { name: 'en-US-GuyNeural', locale: 'en-US', gender: 'Male', displayName: 'Guy' },
+  { name: 'ja-JP-NanamiNeural', locale: 'ja-JP', gender: 'Female', displayName: 'Nanami' },
+  { name: 'ja-JP-KeitaNeural', locale: 'ja-JP', gender: 'Male', displayName: 'Keita' },
+  // Related languages with different locales must not leak into these choices.
+  { name: 'en-GB-SoniaNeural', locale: 'en-GB', gender: 'Female', displayName: 'Sonia' },
+  { name: 'zh-HK-HiuMaanNeural', locale: 'zh-HK', gender: 'Female', displayName: 'HiuMaan' },
+];
+
 async function fixture(page: Page, downloadOrigin = '') {
   const id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
   let project: Project = {
@@ -41,6 +53,8 @@ async function fixture(page: Page, downloadOrigin = '') {
   project.chapterJobs![originalChapter.id] = published; project.latestJob = published;
   const submitted: { kind: string; chapterId: string; expectedRevision: number }[] = [];
   const hydrate = () => ({ ...project, chapterVideos: Object.fromEntries(Object.entries(project.chapterVideos ?? {}).map(([chapterId, video]) => [chapterId, { ...video, current: isChapterVideoCurrent(project, chapterId) }])) });
+  // This legacy fixture has only a published snapshot, no retained generation result.
+  await page.route(`**/api/projects/${id}/videos?*`, route => route.fulfill({ json: { versions: [] } }));
   await page.route(`**/api/projects/${id}`, async route => {
     if (route.request().method() === 'PATCH') { const input = route.request().postDataJSON(); if (input.expectedRevision !== project.revision) { await route.fulfill({ status: 409, json: { error: '版本已更新' } }); return; } project = { ...project, ...input, revision: project.revision + 1 }; }
     await route.fulfill({ json: { project: hydrate() } });
@@ -55,7 +69,7 @@ async function fixture(page: Page, downloadOrigin = '') {
   await page.route(/\/api\/jobs\/(?:eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee|ffffffff-ffff-4fff-8fff-ffffffffffff)\/events$/, route => route.fulfill({ status: 204 }));
   await page.route(/\/api\/jobs\/(?:eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee|ffffffff-ffff-4fff-8fff-ffffffffffff)$/, route => route.fulfill({ json: { job: Object.values(project.chapterJobs!).find(job => route.request().url().endsWith(job.id)) } }));
   await page.route('**/api/models', route => route.fulfill({ json: { models: [{ id: 'catalog-model-default', displayName: '当前默认模型', isDefault: true }, { id: 'catalog-model-creative', displayName: '可选创作模型', description: '浏览器测试中的实际接口返回项' }], cached: true } }));
-  await page.route('**/api/voices', route => route.fulfill({ json: { voices: [{ name: 'zh-CN-XiaoxiaoNeural', locale: 'zh-CN', gender: 'Female', displayName: '晓晓' }, { name: 'zh-CN-YunxiNeural', locale: 'zh-CN', gender: 'Male', displayName: '云希' }] } }));
+  await page.route('**/api/voices', route => route.fulfill({ json: { voices: voiceCatalog } }));
 
   return { id, getProject: () => project, submitted, removeExports: () => { for (const video of Object.values(project.chapterVideos!)) video.latestExport = null; }, completePending: (chapterId?: string) => {
     for (const pending of Object.values(project.chapterJobs!)) if (pending.status === 'queued' && (!chapterId || pending.chapterId === chapterId)) {
@@ -72,7 +86,7 @@ test('switches chapter previews and downloads independently, keeping another cha
   await page.goto(`/projects/${data.id}`);
   await page.getByRole('tab', { name: '视频', exact: true }).click();
   await expect(page.getByText('细胞膜独立画面', { exact: true })).toBeVisible();
-  await expect(page.locator('.creation-preview-toolbar')).toContainText('v2');
+  await expect(page.locator('.creation-preview-toolbar')).not.toContainText('v2');
   const firstDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: '下载视频', exact: true }).click();
   expect((await firstDownload).suggestedFilename()).toBe('chapter-a.mp4');
@@ -83,7 +97,10 @@ test('switches chapter previews and downloads independently, keeping another cha
   await page.getByRole('button', { name: '下载视频', exact: true }).click();
   expect((await secondDownload).suggestedFilename()).toBe('chapter-b.mp4');
   await page.getByLabel('章节 Markdown').fill('# 细胞核\n\n这一章已更新，旧预览仍保留。');
-  await expect(page.getByRole('button', { name: '下载视频', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '下载视频', exact: true })).toBeEnabled();
+  const retainedDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下载视频', exact: true }).click();
+  expect((await retainedDownload).suggestedFilename()).toBe('chapter-b.mp4');
   await expect(page.getByText('细胞核独立画面', { exact: true })).toBeVisible();
   await page.getByRole('navigation', { name: '项目章节' }).getByRole('button', { name: '01 细胞膜' }).click();
   await expect(page.getByText('细胞膜独立画面', { exact: true })).toBeVisible();
@@ -104,9 +121,10 @@ test('persists per-chapter configuration, auditions the selected voice, and subm
   await modal.getByLabel('创作要求', { exact: true }).fill('面向首次使用的新用户，先呈现问题，再展示操作，不添加原稿没有的功能。');
   await modal.getByLabel('目标观众', { exact: true }).fill('第一次使用产品的用户');
   await modal.getByLabel('视频分辨率').selectOption('1080p');
-  await modal.getByLabel('微软免费配音').selectOption('zh-CN-YunxiNeural');
+  await modal.getByLabel('视频语言', { exact: true }).selectOption('en-US');
+  await modal.getByLabel('微软免费配音').selectOption('en-US-GuyNeural');
   await modal.getByRole('button', { name: '试听当前音色' }).click();
-  await expect.poll(() => audition).toEqual({ voice: 'zh-CN-YunxiNeural', rate: 0 });
+  await expect.poll(() => audition).toEqual({ voice: 'en-US-GuyNeural', rate: 0 });
   await modal.getByLabel('风格描述').fill('蓝白配色、留白充足，用橙色强调关键元素。');
   await modal.getByRole('button', { name: '理性蓝调', exact: false }).click();
   await modal.getByRole('button', { name: '创作模式', exact: false }).click();
@@ -116,13 +134,15 @@ test('persists per-chapter configuration, auditions the selected voice, and subm
   await page.screenshot({ path: '.data/verification/generation-settings-fixture.png' });
   await modal.getByRole('button', { name: '保存设置', exact: true }).click();
   await expect(modal).toHaveCount(0);
-  expect(data.getProject().chapters![0].settings).toMatchObject({ resolution: '1080p', voice: 'zh-CN-YunxiNeural', theme: 'ocean', model: 'catalog-model-creative', creationMode: 'creative', stylePrompt: '蓝白配色、留白充足，用橙色强调关键元素。', videoIntent: 'product', creativeBrief: '面向首次使用的新用户，先呈现问题，再展示操作，不添加原稿没有的功能。', audience: '第一次使用产品的用户' });
+  expect(data.getProject().chapters![0].settings).toMatchObject({ resolution: '1080p', language: 'en-US', voice: 'en-US-GuyNeural', theme: 'ocean', model: 'catalog-model-creative', creationMode: 'creative', stylePrompt: '蓝白配色、留白充足，用橙色强调关键元素。', videoIntent: 'product', creativeBrief: '面向首次使用的新用户，先呈现问题，再展示操作，不添加原稿没有的功能。', audience: '第一次使用产品的用户' });
   expect(data.getProject().settings).toEqual(data.getProject().chapters![0].settings);
   expect(data.getProject().chapters![1].settings).toEqual(defaultSettings);
   expect(isChapterVideoCurrent(data.getProject(), 'chapter-b')).toBe(true);
   await page.reload();
   await page.getByRole('button', { name: '更新视频', exact: true }).click();
   await expect(page.getByLabel('视频分辨率')).toHaveValue('1080p');
+  await expect(page.getByLabel('视频语言', { exact: true })).toHaveValue('en-US');
+  await expect(page.getByLabel('微软免费配音')).toHaveValue('en-US-GuyNeural');
   await expect(page.getByLabel('风格描述')).toHaveValue('蓝白配色、留白充足，用橙色强调关键元素。');
   await expect(page.getByLabel('视频用途', { exact: true })).toHaveValue('product');
   await expect(page.getByLabel('创作要求', { exact: true })).toHaveValue('面向首次使用的新用户，先呈现问题，再展示操作，不添加原稿没有的功能。');
@@ -144,7 +164,8 @@ test('remembers saved settings for subsequent chapters and new chapters across r
   const modal = page.getByRole('dialog');
   await expect(modal).toContainText('后续未配置的章节会自动沿用');
   await modal.getByLabel('视频分辨率').selectOption('1080p');
-  await modal.getByLabel('微软免费配音').selectOption('zh-CN-YunxiNeural');
+  await modal.getByLabel('视频语言', { exact: true }).selectOption('ja-JP');
+  await modal.getByLabel('微软免费配音').selectOption('ja-JP-KeitaNeural');
   await modal.getByLabel('AI 模型').selectOption('catalog-model-creative');
   await modal.getByRole('button', { name: '创作模式', exact: false }).click();
   await modal.getByLabel('风格描述').fill('蓝白配色，统一视觉');
@@ -156,7 +177,8 @@ test('remembers saved settings for subsequent chapters and new chapters across r
   await page.getByRole('navigation', { name: '项目章节' }).getByRole('button', { name: '02 细胞核' }).click();
   await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
   await expect(modal.getByLabel('视频分辨率')).toHaveValue('1080p');
-  await expect(modal.getByLabel('微软免费配音')).toHaveValue('zh-CN-YunxiNeural');
+  await expect(modal.getByLabel('视频语言', { exact: true })).toHaveValue('ja-JP');
+  await expect(modal.getByLabel('微软免费配音')).toHaveValue('ja-JP-KeitaNeural');
   await expect(modal.getByLabel('AI 模型')).toHaveValue('catalog-model-creative');
   await expect(modal.getByRole('button', { name: '创作模式', exact: false })).toHaveAttribute('aria-pressed', 'true');
   await expect(modal.getByLabel('风格描述')).toHaveValue('蓝白配色，统一视觉');
@@ -169,14 +191,162 @@ test('remembers saved settings for subsequent chapters and new chapters across r
   await page.getByRole('button', { name: '添加章节', exact: true }).click();
   await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
   await expect(modal.getByLabel('视频分辨率')).toHaveValue('1080p');
-  await expect(modal.getByLabel('微软免费配音')).toHaveValue('zh-CN-YunxiNeural');
+  await expect(modal.getByLabel('视频语言', { exact: true })).toHaveValue('ja-JP');
+  await expect(modal.getByLabel('微软免费配音')).toHaveValue('ja-JP-KeitaNeural');
   await expect(modal.getByLabel('风格描述')).toHaveValue('蓝白配色，强调标题');
   await modal.getByRole('button', { name: '关闭生成设置' }).click();
   await page.getByRole('navigation', { name: '项目章节' }).getByRole('button', { name: '03 独立参数' }).click();
   await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
   await expect(modal.getByLabel('视频分辨率')).toHaveValue(defaultSettings.resolution);
+  await expect(modal.getByLabel('视频语言', { exact: true })).toHaveValue(defaultSettings.language);
+  await expect(modal.getByLabel('微软免费配音')).toHaveValue(defaultSettings.voice);
   await expect(modal.getByLabel('配音语速')).toHaveValue('25');
 });
+
+test('offers catalog languages and strictly filters Chinese, English, and Japanese voices by locale', async ({ page }) => {
+  const data = await fixture(page);
+  await page.goto(`/projects/${data.id}`);
+  await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
+  const modal = page.getByRole('dialog');
+  const language = modal.getByLabel('视频语言', { exact: true });
+  const voice = modal.getByLabel('微软免费配音');
+  await expect(language).toHaveValue('zh-CN');
+  await expect.poll(() => language.locator('option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
+    .toEqual(expect.arrayContaining(['zh-CN', 'en-US', 'ja-JP', 'en-GB', 'zh-HK']));
+  for (const locale of ['zh-CN', 'en-US', 'ja-JP']) {
+    await language.selectOption(locale);
+    const expected = voiceCatalog.filter(item => item.locale === locale).map(item => item.name).sort();
+    await expect.poll(() => voice.locator('option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value).sort())).toEqual(expected);
+    expect(expected).toContain(await voice.inputValue());
+    // Choose a non-default voice before moving to the next language, so stale
+    // cross-language selections cannot accidentally satisfy the next check.
+    await voice.selectOption(expected[expected.length - 1]);
+  }
+  expect(data.submitted).toEqual([]);
+});
+
+test('allows language and voice selection while the model catalog is still loading', async ({ page }) => {
+  const data = await fixture(page);
+  let releaseModels!: () => void;
+  const modelGate = new Promise<void>(resolve => { releaseModels = resolve; });
+  let modelsRequested = false;
+  let modelsCompleted = false;
+  await page.route('**/api/models', async route => {
+    modelsRequested = true;
+    await modelGate;
+    await route.fulfill({ json: { models: [{ id: 'catalog-model-default', displayName: '当前默认模型', isDefault: true }], cached: true } });
+    modelsCompleted = true;
+  });
+  try {
+    await page.goto(`/projects/${data.id}`);
+    await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
+    const modal = page.getByRole('dialog');
+    await expect.poll(() => modelsRequested).toBe(true);
+    await modal.getByLabel('视频语言', { exact: true }).selectOption('ja-JP');
+    await modal.getByLabel('微软免费配音').selectOption('ja-JP-KeitaNeural');
+    await expect(modal.getByLabel('视频语言', { exact: true })).toHaveValue('ja-JP');
+    await expect(modal.getByLabel('微软免费配音')).toHaveValue('ja-JP-KeitaNeural');
+    expect(modelsCompleted).toBe(false);
+  } finally {
+    releaseModels();
+    await expect.poll(() => modelsCompleted).toBe(true);
+  }
+});
+
+test('requires a matching voice before generating from inconsistent historical language settings', async ({ page }) => {
+  const data = await fixture(page);
+  data.getProject().chapters![0].settings = { ...defaultSettings, language: 'ja-JP', voice: 'zh-CN-XiaoxiaoNeural' };
+  await page.goto(`/projects/${data.id}`);
+  await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
+  const modal = page.getByRole('dialog');
+  await expect(modal.getByLabel('视频语言', { exact: true })).toHaveValue('ja-JP');
+  await expect(modal.getByLabel('微软免费配音')).toHaveValue('');
+  await expect(modal.getByRole('button', { name: '生成本章视频', exact: true })).toBeDisabled();
+  await expect(modal.getByRole('button', { name: '保存设置', exact: true })).toBeEnabled();
+  expect(data.getProject().chapters![0].settings?.voice).toBe('zh-CN-XiaoxiaoNeural');
+  await modal.getByLabel('微软免费配音').selectOption('ja-JP-KeitaNeural');
+  await expect(modal.getByRole('button', { name: '生成本章视频', exact: true })).toBeEnabled();
+  await mkdir('.data/verification/video-languages', { recursive: true });
+  await modal.getByLabel('视频语言', { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: '.data/verification/video-languages/settings.png' });
+  await modal.getByRole('button', { name: '生成本章视频', exact: true }).click();
+  await expect.poll(() => data.submitted.length).toBe(1);
+  expect(data.getProject().chapters![0].settings).toMatchObject({ language: 'ja-JP', voice: 'ja-JP-KeitaNeural' });
+  expect(data.submitted[0]).toMatchObject({ kind: 'preview', chapterId: 'chapter-a' });
+});
+
+test('discards a late voice audition after changing language and removes the previous language audio', async ({ page }) => {
+  const data = await fixture(page);
+  // Simulate a response that has already escaped transport cancellation. The
+  // component still needs to ignore its result after the selection changes.
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      return originalFetch(input, url.endsWith('/api/voices/preview') ? { ...init, signal: undefined } : init);
+    };
+  });
+  let releaseOld!: () => void;
+  const oldGate = new Promise<void>(resolve => { releaseOld = resolve; });
+  const auditions: Array<{ voice: string; rate: number }> = [];
+  const audioRequests: string[] = [];
+  await page.route('**/api/voices/preview', async route => {
+    const input = route.request().postDataJSON(); auditions.push(input);
+    const old = input.voice === defaultSettings.voice;
+    if (old) await oldGate;
+    await route.fulfill({ json: { speech: { url: `/api/artifacts/audition-${old ? 'old' : 'current'}`, durationSeconds: 1, boundaries: [], hash: input.voice, cacheHit: false } } });
+  });
+  await page.route('**/api/artifacts/audition-*', route => {
+    audioRequests.push(route.request().url());
+    return route.fulfill({ contentType: 'audio/wav', body: Buffer.alloc(44) });
+  });
+  try {
+    await page.goto(`/projects/${data.id}`);
+    await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
+    const modal = page.getByRole('dialog');
+    const audio = modal.locator('audio[aria-label="音色试听"]');
+    const oldResponse = page.waitForResponse(response => response.url().endsWith('/api/voices/preview') && response.request().postDataJSON().voice === defaultSettings.voice);
+    await modal.getByRole('button', { name: '试听当前音色' }).click();
+    await expect.poll(() => auditions).toEqual([{ voice: defaultSettings.voice, rate: defaultSettings.rate }]);
+    await modal.getByLabel('视频语言', { exact: true }).selectOption('en-US');
+    await expect(modal.getByRole('button', { name: '试听当前音色' })).toBeEnabled();
+    releaseOld();
+    await (await oldResponse).finished();
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(audio).toHaveCount(0);
+    await modal.getByLabel('微软免费配音').selectOption('en-US-GuyNeural');
+    await modal.getByRole('button', { name: '试听当前音色' }).click();
+    await expect.poll(() => auditions).toEqual([{ voice: defaultSettings.voice, rate: defaultSettings.rate }, { voice: 'en-US-GuyNeural', rate: defaultSettings.rate }]);
+    await expect(audio).toHaveAttribute('src', '/api/artifacts/audition-current');
+    expect(audioRequests.some(url => url.endsWith('/audition-old'))).toBe(false);
+    await modal.getByLabel('视频语言', { exact: true }).selectOption('ja-JP');
+    await expect(audio).toHaveCount(0);
+    await expect(modal.getByLabel('微软免费配音')).toHaveValue(/^ja-JP-/);
+  } finally { releaseOld(); }
+});
+
+for (const availability of ['failed', 'missing'] as const) {
+  test(`preserves saved language and voice when the catalog is ${availability}`, async ({ page }) => {
+    const data = await fixture(page);
+    data.getProject().chapters![0].settings = { ...defaultSettings, language: 'fr-FR', voice: 'fr-FR-DeniseNeural' };
+    if (availability === 'failed') await page.route('**/api/voices', route => route.fulfill({ status: 503, json: { error: '音色目录暂时不可用' } }));
+    await page.goto(`/projects/${data.id}`);
+    await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
+    const modal = page.getByRole('dialog');
+    await expect(modal.getByLabel('视频语言', { exact: true })).toHaveValue('fr-FR');
+    await expect(modal.getByLabel('微软免费配音')).toHaveValue('fr-FR-DeniseNeural');
+    await expect(modal.getByLabel('微软免费配音').locator('option:checked')).toContainText('fr-FR-DeniseNeural');
+    await modal.getByLabel('视频分辨率').selectOption('1080p');
+    await modal.getByRole('button', { name: '保存设置', exact: true }).click();
+    await expect(modal).toHaveCount(0);
+    expect(data.getProject().chapters![0].settings).toMatchObject({ language: 'fr-FR', voice: 'fr-FR-DeniseNeural', resolution: '1080p' });
+    expect(data.getProject().settings).toMatchObject({ language: 'fr-FR', voice: 'fr-FR-DeniseNeural' });
+    await page.reload();
+    await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
+    await expect(modal.getByLabel('视频语言', { exact: true })).toHaveValue('fr-FR');
+    await expect(modal.getByLabel('微软免费配音')).toHaveValue('fr-FR-DeniseNeural');
+  });
+}
 
 test('previews all preset components and actual animated JavaScript SVG components', async ({ page }) => {
   const data = await fixture(page);

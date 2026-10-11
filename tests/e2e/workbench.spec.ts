@@ -80,6 +80,7 @@ test('does not mistake a background refresh for a conflict when an in-flight sav
   let releasePatch!: () => void; const acknowledgement = new Promise<void>(resolve => { releasePatch = resolve; });
   await page.route(`**/api/jobs/${jobId}/events`, route => route.fulfill({ status: 204 }));
   await page.route(`**/api/jobs/${jobId}`, route => route.fulfill({ json: { job: failed } }));
+  await page.route(`**/api/projects/${id}/videos?*`, route => route.fulfill({ json: { versions: [] } }));
   await page.route(`**/api/projects/${id}`, async route => {
     if (route.request().method() === 'PATCH') {
       const input = route.request().postDataJSON();

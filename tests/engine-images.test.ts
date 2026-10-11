@@ -79,6 +79,27 @@ describe('real image input and grounded teaching references', () => {
     expect(normalized.scenes[0].objects[0].imagePresentation?.region).toBeNull();
     expect(issues[0].code).toBe('IMAGE_REGION_FALLBACK');
   });
+  it('retains original OCR and asset identity while caching generated observations by target language', async () => {
+    const visibleText = ['原始界面', 'OpenTutor 42'];
+    const summaries = { 'fr-FR': 'Une surface bleue', 'ja-JP': '青い面' };
+    let calls = 0;
+    const runner: JsonRunner = async prompt => {
+      calls++;
+      expect(prompt).toContain('Transcribe visibleText exactly as legible in the pixels');
+      expect(prompt).toContain('Write generated summary, uncertainties and region labels in creativeContext.language');
+      const data = JSON.parse(prompt.split('IMAGE_DATA=')[1]);
+      const summary = summaries[data.creativeContext.language as keyof typeof summaries];
+      return JSON.stringify({ ...observation, summary, visibleText, regions: [{ ...observation.regions[0], label: summary }] });
+    };
+    const run = (language: keyof typeof summaries) => analyzeSourceImages([asset], source().imageOccurrences!, runner, { ownerProjectId: course, signal: AbortSignal.timeout(5000), dependencies: dependencies(), creativeContext: { ...defaultSettings, language } });
+    const french = await run('fr-FR'); await run('fr-FR'); expect(calls).toBe(1);
+    const japanese = await run('ja-JP'); expect(calls).toBe(2);
+    for (const [result, locale] of [[french, 'fr-FR'], [japanese, 'ja-JP']] as const) {
+      expect(result.analyses[0]).toMatchObject({ assetId: id, hash: asset.hash, summary: summaries[locale], visibleText, regions: [{ id: 'whole', label: summaries[locale] }] });
+      const lesson = normalizeImagePresentations({ scenes: [{ id: 'scene', objects: [{ type: 'image', content: id }] }] }, result.analyses, []) as Lesson;
+      expect(lesson.scenes[0].objects[0]).toMatchObject({ content: id, imagePresentation: { caption: summaries[locale] } });
+    }
+  });
   it('stages image attachments inside the read-only Codex working directory with a real PNG extension', async () => {
     const input = path.join(temporary, 'uploaded');
     harness.inspectInput = async unknown => {

@@ -2,10 +2,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { stat, readFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import type { PoolClient } from 'pg';
-import { CreateProjectSchema, UpdateProjectSchema, SubmitJobSchema, LessonSchema, SceneSchema, SettingsSchema, type Diagnostic, type JobRecord, type JobEvent, type Lesson, type Project, type RenderPlan, type Asset, type GenerationSettings, type JobPreview, type Chapter, type ProjectSnapshot, type ProjectExport, type ChapterVideo } from '../shared/schema';
+import { CreateProjectSchema, UpdateProjectSchema, SubmitJobSchema, LessonSchema, SceneSchema, SettingsSchema, type Diagnostic, type JobRecord, type JobEvent, type Lesson, type Project, type RenderPlan, type Asset, type GenerationSettings, type JobPreview, type Chapter, type ProjectSnapshot, type ProjectExport, type ChapterVideo, type VideoVersionSummary, type VideoVersionDetail } from '../shared/schema';
 import type { RenderProgress } from '../shared/render-progress';
 import { createEmptyChapter, getProjectChapters, getChapterSourceKey, isChapterVideoCurrent, joinChapterMarkdown, splitMarkdownChapters } from '../shared/chapters';
 import { validateCustomCode } from '../shared/custom';
+import { voiceLocale } from '../shared/voices';
 import { getPool, initDb, withTransaction, closeDb } from './db';
 import { getQueue } from './queue';
 import { AppError, notFound } from './errors';
@@ -86,7 +87,7 @@ async function assertNarrationAudio(c: PoolClient, projectId: string, plan: Rend
   const file = await stat(/* turbopackIgnore: true */ artifact.path).catch(() => null);
   if (!file?.isFile() || file.size < 1) invalid();
 }
-async function assertResultArtifact(c: PoolClient, projectId: string, url: string | undefined, kind: 'video' | 'subtitles') {
+async function assertResultArtifact(c: Pick<PoolClient, 'query'>, projectId: string, url: string | undefined, kind: 'video' | 'subtitles') {
   if (!url) return;
   const match = /^\/api\/artifacts\/([a-f0-9-]{36})$/.exec(url);
   if (!match || !validId(match[1])) throw new AppError(422, 'INVALID_RESULT_ARTIFACT', '生成结果必须使用本项目已注册的文件');
@@ -117,9 +118,9 @@ async function assertAlignedPlan(c: PoolClient, projectId: string, plan: RenderP
 }
 async function hydrate(project: Project): Promise<Project> {
   const [result, latestExport, jobs] = await Promise.all([
-    getPool().query('SELECT data FROM jobs WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [project.id]),
+    getPool().query("SELECT data FROM jobs WHERE project_id=$1 AND data->>'videoVersionId' IS NULL ORDER BY created_at DESC LIMIT 1", [project.id]),
     getCurrentExport(project.id, project.revision),
-    getPool().query("SELECT DISTINCT ON (data->>'chapterId') data FROM jobs WHERE project_id=$1 AND data->>'chapterId' IS NOT NULL ORDER BY data->>'chapterId',created_at DESC", [project.id]),
+    getPool().query("SELECT DISTINCT ON (data->>'chapterId') data FROM jobs WHERE project_id=$1 AND data->>'chapterId' IS NOT NULL AND data->>'videoVersionId' IS NULL ORDER BY data->>'chapterId',created_at DESC", [project.id]),
   ]);
   const normalized = sourceSnapshot(project);
   const chapterVideos = Object.fromEntries(await Promise.all(Object.entries(project.chapterVideos || {}).map(async ([id, video]) => {
@@ -173,7 +174,7 @@ export async function updateProject(id: string, value: unknown): Promise<Project
     if (input.chapters && JSON.stringify(old.settings) !== JSON.stringify(input.settings)) {
       // A client may not have received a newly submitted job yet. Preserve its
       // effective settings using transactional state before changing the default.
-      const active = await c.query("SELECT data->>'chapterId' AS chapter_id FROM jobs WHERE project_id=$1 AND data->>'status' IN ('queued','running','cancelling') AND data->>'chapterId' IS NOT NULL", [id]);
+      const active = await c.query("SELECT data->>'chapterId' AS chapter_id FROM jobs WHERE project_id=$1 AND data->>'status' IN ('queued','running','cancelling') AND data->>'chapterId' IS NOT NULL AND data->>'videoVersionId' IS NULL", [id]);
       const started = new Set<string>(active.rows.map(row => row.chapter_id));
       const previous = new Map(getProjectChapters(old).map(chapter => [chapter.id, chapter]));
       chapters = chapters.map(chapter => {
@@ -223,6 +224,7 @@ export async function submitJob(projectId: string, value: unknown, idempotencyKe
     const chapterVideo = chapter ? project.chapterVideos?.[chapter.id] : null;
     const chapterSourceKey = chapter ? getChapterSourceKey(project, chapter) : undefined;
     const settings = SettingsSchema.parse(chapter?.settings ?? project.settings);
+    if (input.kind !== 'export' && voiceLocale(settings.voice) !== settings.language) throw new AppError(422, 'VOICE_LANGUAGE_MISMATCH', '音色与视频语言不匹配，请在生成设置中重新选择该语言的音色');
     const lesson = chapter ? chapterVideo?.lesson ?? null : project.lesson;
     const renderPlan = chapter ? chapterVideo?.renderPlan ?? null : project.renderPlan;
     const previewRevision = chapter ? chapterVideo?.previewRevision ?? null : project.previewRevision;
@@ -236,7 +238,7 @@ export async function submitJob(projectId: string, value: unknown, idempotencyKe
       await assertAlignedPlan(c, projectId, renderPlan, lesson!, settings, !!chapter);
     }
     if (input.kind === 'regenerate' && (!input.sceneId || !lesson?.scenes.some(s => s.id === input.sceneId))) throw new AppError(422, 'UNKNOWN_SCENE', '需要指定当前项目中的场景');
-    const active = await c.query("SELECT id FROM jobs WHERE project_id=$1 AND data->>'status' IN ('queued','running','cancelling') AND ($2::text IS NULL OR data->>'chapterId' IS NULL OR data->>'chapterId'=$2)", [projectId, chapter?.id || null]);
+    const active = await c.query("SELECT id FROM jobs WHERE project_id=$1 AND data->>'status' IN ('queued','running','cancelling') AND data->>'videoVersionId' IS NULL AND ($2::text IS NULL OR data->>'chapterId' IS NULL OR data->>'chapterId'=$2)", [projectId, chapter?.id || null]);
     if (active.rowCount) throw new AppError(409, 'JOB_ACTIVE', '项目已有任务正在执行，请等待完成或取消');
     const timestamp = now();
     const { id, title, assets, revision } = project;
@@ -348,43 +350,53 @@ export async function completeJob(id: string, result: CompletedResult, leaseToke
       if (result.renderPlan?.revision !== job.snapshot.revision) throw new AppError(422, 'PREVIEW_REVISION_MISMATCH', '配音结果必须绑定提交时的项目版本');
       await assertAlignedPlan(c, job.projectId, result.renderPlan, result.lesson, job.snapshot.settings, !!job.chapterId);
     } else if (result.renderPlan) await assertNarrationAudio(c, job.projectId, result.renderPlan);
+    if (job.videoVersionId) {
+      if (job.kind !== 'export' || !result.videoUrl || !result.lesson || !result.renderPlan || !job.snapshot.lesson || !job.snapshot.renderPlan || videoPlanIdentity(result.renderPlan, job.snapshot.assets, job.snapshot.settings) !== videoPlanIdentity(job.snapshot.renderPlan, job.snapshot.assets, job.snapshot.settings) || canonicalJson(result.lesson) !== canonicalJson(job.snapshot.lesson)) throw new AppError(422, 'VIDEO_VERSION_MISMATCH', '历史导出必须使用所选视频版本的完整画面、音轨与 MP4 文件');
+      await assertAlignedPlan(c, job.projectId, result.renderPlan, result.lesson, job.snapshot.settings, !!job.chapterId);
+    }
     await c.query('INSERT INTO generation_results(id,job_id,project_id,input_revision,data) VALUES($1,$2,$3,$4,$5) ON CONFLICT(job_id) DO NOTHING', [randomUUID(), id, project.id, job.inputRevision, JSON.stringify(result)]);
-    const chapter = job.chapterId ? getProjectChapters(project).find(ch => ch.id === job.chapterId) : null;
-    if (chapter) project.assets = await assertAssets(c, project.assets);
-    const publishable = job.chapterId ? !!chapter && job.snapshot.chapterSourceKey === getChapterSourceKey(project, chapter) : project.revision === job.inputRevision;
-    if (publishable) {
-      if (job.chapterId && chapter) {
-        const existing = project.chapterVideos?.[chapter.id];
-        if (job.kind === 'export') {
-          if (!existing || existing.sourceKey !== job.snapshot.chapterSourceKey || existing.previewRevision !== job.snapshot.revision) throw new AppError(409, 'STALE_PREVIEW', '本章节预览已更新，导出结果仍保留在历史任务');
-          job.outputRevision = existing.previewRevision;
-          project.chapterVideos = { ...project.chapterVideos, [chapter.id]: { ...existing, latestExport: result.videoUrl ? { jobId: job.id, revision: existing.previewRevision, videoUrl: result.videoUrl, subtitleUrl: result.subtitleUrl || null } : existing.latestExport, updatedAt: now() } };
-        } else if (result.lesson) {
-          if (result.lesson.scenes.some(scene => scene.chapterId && scene.chapterId !== chapter.id)) throw new AppError(422, 'CHAPTER_MISMATCH', '生成结果包含其他章节画面');
-          project.revision += 1;
-          const irOnly = ['compose', 'regenerate'].includes(job.kind);
-          const renderPlan = !irOnly && result.renderPlan ? { ...result.renderPlan, revision: project.revision } : existing?.renderPlan ?? null;
-          const video: ChapterVideo = { chapterId: chapter.id, sourceKey: job.snapshot.chapterSourceKey!, settings: job.snapshot.settings, lesson: result.lesson, renderPlan, previewAssets: !irOnly && result.renderPlan ? job.snapshot.assets : existing?.previewAssets ?? [], previewRevision: !irOnly && result.renderPlan ? project.revision : existing?.previewRevision ?? project.revision, latestExport: result.videoUrl ? { jobId: job.id, revision: project.revision, videoUrl: result.videoUrl, subtitleUrl: result.subtitleUrl || null } : null, updatedAt: now() };
-          project.chapterVideos = { ...project.chapterVideos, [chapter.id]: video };
-          job.outputRevision = project.revision;
-        }
-      } else {
-      if (job.kind !== 'export' && result.lesson) {
-        project.revision += 1; project.lesson = result.lesson;
-        if (!['compose', 'regenerate'].includes(job.kind) && result.renderPlan) {
-          project.renderPlan = { ...result.renderPlan, revision: project.revision };
-          project.previewRevision = project.revision;
-          project.previewAssets = job.snapshot.assets;
-        }
-      }
-      // Export attaches artifacts to this immutable job; it does not change the lesson revision.
-      job.outputRevision = project.revision;
-      }
-      project.updatedAt = now(); project.latestJob = null; project.latestExport = null;
-      await c.query('UPDATE projects SET data=$2,updated_at=now() WHERE id=$1', [project.id, JSON.stringify(project)]);
-      if (job.kind !== 'export') await c.query('INSERT INTO project_revisions(project_id,revision,data) VALUES($1,$2,$3) ON CONFLICT(project_id,revision) DO NOTHING', [project.id, project.revision, JSON.stringify(project)]);
+    if (job.videoVersionId) {
+      // A historical render is an artifact for its immutable version. It must not
+      // publish into, invalidate or revise the currently edited project/chapter.
+      job.outputRevision = job.snapshot.revision;
     } else {
-      job.diagnostics.push({ code: 'STALE_RESULT', severity: 'warning', message: job.chapterId ? '生成期间本章节已编辑或删除，结果保留在历史，没有覆盖当前章节' : '生成期间项目已编辑，本次结果保留在任务历史，没有覆盖当前项目' });
+      const chapter = job.chapterId ? getProjectChapters(project).find(ch => ch.id === job.chapterId) : null;
+      if (chapter) project.assets = await assertAssets(c, project.assets);
+      const publishable = job.chapterId ? !!chapter && job.snapshot.chapterSourceKey === getChapterSourceKey(project, chapter) : project.revision === job.inputRevision;
+      if (publishable) {
+        if (job.chapterId && chapter) {
+          const existing = project.chapterVideos?.[chapter.id];
+          if (job.kind === 'export') {
+            if (!existing || existing.sourceKey !== job.snapshot.chapterSourceKey || existing.previewRevision !== job.snapshot.revision) throw new AppError(409, 'STALE_PREVIEW', '本章节预览已更新，导出结果仍保留在历史任务');
+            job.outputRevision = existing.previewRevision;
+            project.chapterVideos = { ...project.chapterVideos, [chapter.id]: { ...existing, latestExport: result.videoUrl ? { jobId: job.id, revision: existing.previewRevision, videoUrl: result.videoUrl, subtitleUrl: result.subtitleUrl || null } : existing.latestExport, updatedAt: now() } };
+          } else if (result.lesson) {
+            if (result.lesson.scenes.some(scene => scene.chapterId && scene.chapterId !== chapter.id)) throw new AppError(422, 'CHAPTER_MISMATCH', '生成结果包含其他章节画面');
+            project.revision += 1;
+            const irOnly = ['compose', 'regenerate'].includes(job.kind);
+            const renderPlan = !irOnly && result.renderPlan ? { ...result.renderPlan, revision: project.revision } : existing?.renderPlan ?? null;
+            const video: ChapterVideo = { chapterId: chapter.id, sourceKey: job.snapshot.chapterSourceKey!, settings: job.snapshot.settings, lesson: result.lesson, renderPlan, previewAssets: !irOnly && result.renderPlan ? job.snapshot.assets : existing?.previewAssets ?? [], previewRevision: !irOnly && result.renderPlan ? project.revision : existing?.previewRevision ?? project.revision, latestExport: result.videoUrl ? { jobId: job.id, revision: project.revision, videoUrl: result.videoUrl, subtitleUrl: result.subtitleUrl || null } : null, updatedAt: now() };
+            project.chapterVideos = { ...project.chapterVideos, [chapter.id]: video };
+            job.outputRevision = project.revision;
+          }
+        } else {
+        if (job.kind !== 'export' && result.lesson) {
+          project.revision += 1; project.lesson = result.lesson;
+          if (!['compose', 'regenerate'].includes(job.kind) && result.renderPlan) {
+            project.renderPlan = { ...result.renderPlan, revision: project.revision };
+            project.previewRevision = project.revision;
+            project.previewAssets = job.snapshot.assets;
+          }
+        }
+        // Export attaches artifacts to this immutable job; it does not change the lesson revision.
+        job.outputRevision = project.revision;
+        }
+        project.updatedAt = now(); project.latestJob = null; project.latestExport = null;
+        await c.query('UPDATE projects SET data=$2,updated_at=now() WHERE id=$1', [project.id, JSON.stringify(project)]);
+        if (job.kind !== 'export') await c.query('INSERT INTO project_revisions(project_id,revision,data) VALUES($1,$2,$3) ON CONFLICT(project_id,revision) DO NOTHING', [project.id, project.revision, JSON.stringify(project)]);
+      } else {
+        job.diagnostics.push({ code: 'STALE_RESULT', severity: 'warning', message: job.chapterId ? '生成期间本章节已编辑或删除，结果保留在历史，没有覆盖当前章节' : '生成期间项目已编辑，本次结果保留在任务历史，没有覆盖当前项目' });
+      }
     }
     job.videoUrl = result.videoUrl || null; job.subtitleUrl = result.subtitleUrl || null;
     if (result.lesson) job.preview = { lesson: result.lesson, renderPlan: result.renderPlan || null, updatedAt: now() };
@@ -473,7 +485,7 @@ export async function getProjectRevision(id: string, revision: number): Promise<
   if (!Number.isSafeInteger(revision) || revision < 1) notFound('版本不存在');
   const result = await getPool().query('SELECT data FROM project_revisions WHERE project_id=$1 AND revision=$2', [id, revision]);
   if (!result.rowCount) notFound('版本不存在');
-    const jobs = await getPool().query("SELECT data FROM jobs WHERE project_id=$1 AND data->>'chapterId' IS NULL AND data->>'status'='succeeded' AND ((data->>'outputRevision')::integer=$2 OR (data->>'kind'='export' AND (data->>'inputRevision')::integer=$2)) ORDER BY created_at DESC LIMIT 1", [id, revision]);
+    const jobs = await getPool().query("SELECT data FROM jobs WHERE project_id=$1 AND data->>'chapterId' IS NULL AND data->>'videoVersionId' IS NULL AND data->>'status'='succeeded' AND ((data->>'outputRevision')::integer=$2 OR (data->>'kind'='export' AND (data->>'inputRevision')::integer=$2)) ORDER BY created_at DESC LIMIT 1", [id, revision]);
   const project = sourceSnapshot(result.rows[0].data as Project);
   const chapterVideos = project.chapterVideos && Object.fromEntries(Object.entries(project.chapterVideos).map(([chapterId, video]) => [chapterId, { ...video, settings: SettingsSchema.parse(video.settings) }]));
   return { ...project, ...(chapterVideos ? { chapterVideos } : {}), latestJob: jobs.rows[0]?.data ? normalizedJob(jobs.rows[0].data as JobRecord) : null, latestExport: await getCurrentExport(id, revision) };
@@ -485,7 +497,7 @@ export async function getCurrentExport(id: string, revision?: number): Promise<P
     if (!project.rowCount) notFound('项目不存在');
     revision = project.rows[0].data.revision;
   }
-  const result = await getPool().query("SELECT j.data,a.path FROM jobs j JOIN artifacts a ON '/api/artifacts/'||a.id::text=j.data->>'videoUrl' WHERE j.project_id=$1 AND j.data->>'chapterId' IS NULL AND a.project_id=$1 AND a.mime='video/mp4' AND j.data->>'status'='succeeded' AND ((j.data->>'outputRevision')::integer=$2 OR (j.data->>'kind'='export' AND (j.data->>'inputRevision')::integer=$2)) ORDER BY j.created_at DESC LIMIT 20", [id, revision]);
+  const result = await getPool().query("SELECT j.data,a.path FROM jobs j JOIN artifacts a ON '/api/artifacts/'||a.id::text=j.data->>'videoUrl' WHERE j.project_id=$1 AND j.data->>'chapterId' IS NULL AND j.data->>'videoVersionId' IS NULL AND a.project_id=$1 AND a.mime='video/mp4' AND j.data->>'status'='succeeded' AND ((j.data->>'outputRevision')::integer=$2 OR (j.data->>'kind'='export' AND (j.data->>'inputRevision')::integer=$2)) ORDER BY j.created_at DESC LIMIT 20", [id, revision]);
   for (const row of result.rows) {
     const file = await stat(/* turbopackIgnore: true */ row.path).catch(() => null);
     if (!file?.isFile() || file.size < 1) continue;
@@ -502,11 +514,141 @@ export async function getJobResult(id: string): Promise<{ job: JobRecord; result
 export async function revisionDownload(id: string, revision: number, kind: 'video' | 'subtitles'): Promise<string> {
   await getProjectRevision(id, revision);
   const field = kind === 'video' ? 'videoUrl' : 'subtitleUrl';
-  const result = await getPool().query("SELECT data FROM jobs WHERE project_id=$1 AND data->>'chapterId' IS NULL AND data->>'status'='succeeded' AND ((data->>'outputRevision')::integer=$2 OR (data->>'kind'='export' AND (data->>'inputRevision')::integer=$2)) AND data->>$3 IS NOT NULL ORDER BY created_at DESC LIMIT 1", [id, revision, field]);
+  const result = await getPool().query("SELECT data FROM jobs WHERE project_id=$1 AND data->>'chapterId' IS NULL AND data->>'videoVersionId' IS NULL AND data->>'status'='succeeded' AND ((data->>'outputRevision')::integer=$2 OR (data->>'kind'='export' AND (data->>'inputRevision')::integer=$2)) AND data->>$3 IS NOT NULL ORDER BY created_at DESC LIMIT 1", [id, revision, field]);
   const url = result.rows[0]?.data[field] as string | undefined;
   const match = url && /^\/api\/artifacts\/([a-f0-9-]{36})$/.exec(url);
   if (!match || !validId(match[1])) notFound('此版本尚未导出文件');
   const artifact = await getPool().query('SELECT project_id FROM artifacts WHERE id=$1', [match[1]]);
   if (!artifact.rowCount || artifact.rows[0].project_id !== id) notFound('版本文件不存在');
   return match[1];
+}
+
+type HistoryQuery = Pick<PoolClient, 'query'>;
+interface SavedVideoVersion { job: JobRecord; result: CompletedResult & { lesson: Lesson; renderPlan: RenderPlan }; createdAt: string; version: number; identity: string }
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+}
+function videoPlanIdentity(plan: RenderPlan, assets: Asset[], settings: GenerationSettings): string {
+  // Publication rewrites only this revision. Everything affecting playback,
+  // including real audio URLs and the immutable image content, must still match.
+  const { revision: _revision, ...playback } = plan;
+  return createHash('sha256').update(canonicalJson({ plan: playback, settings: SettingsSchema.parse(settings), assets: [...assets].sort((a, b) => a.id.localeCompare(b.id)) })).digest('hex');
+}
+function completeVideoResult(value: CompletedResult): value is CompletedResult & { lesson: Lesson; renderPlan: RenderPlan } {
+  try {
+    const lesson = LessonSchema.parse(value.lesson); const plan = value.renderPlan;
+    if (!plan || !Number.isSafeInteger(plan.revision) || plan.revision < 1 || !Number.isSafeInteger(plan.fps) || plan.fps < 1 || !Number.isSafeInteger(plan.totalFrames) || plan.totalFrames < 1 || (plan.previewMode !== undefined && plan.previewMode !== 'aligned') || !Array.isArray(plan.scenes) || plan.scenes.length !== lesson.scenes.length) return false;
+    return plan.scenes.every((scene, index) => canonicalJson(SceneSchema.parse(scene.scene)) === canonicalJson(lesson.scenes[index])
+      && Number.isSafeInteger(scene.startFrame) && scene.startFrame >= 0 && Number.isSafeInteger(scene.durationFrames) && scene.durationFrames > 0 && scene.startFrame + scene.durationFrames <= plan.totalFrames
+      && Array.isArray(scene.utterances) && scene.utterances.length === lesson.scenes[index].narration.length && scene.utterances.every((audio, i) => !audio.estimated && !!audio.url && audio.utteranceId === lesson.scenes[index].narration[i].id && Number.isFinite(audio.durationSeconds) && audio.durationSeconds > 0 && Number.isSafeInteger(audio.startFrame) && audio.startFrame >= 0 && Number.isSafeInteger(audio.durationFrames) && audio.durationFrames > 0 && audio.startFrame + audio.durationFrames <= scene.durationFrames));
+  } catch { return false; }
+}
+async function savedVideoVersions(c: HistoryQuery, projectId: string, chapterId?: string): Promise<SavedVideoVersion[]> {
+  const rows = await c.query("SELECT j.data AS job,r.data AS result,r.created_at FROM generation_results r JOIN jobs j ON j.id=r.job_id WHERE r.project_id=$1 AND j.project_id=$1 AND j.data->>'status'='succeeded' AND j.data->>'kind' IN ('preview','speech','generate','rebuild') AND ($2::text IS NULL OR j.data->>'chapterId'=$2) ORDER BY r.created_at,j.created_at,j.id", [projectId, chapterId ?? null]);
+  const counts = new Map<string, number>(); const versions: SavedVideoVersion[] = [];
+  for (const row of rows.rows) {
+    if (!completeVideoResult(row.result)) continue;
+    const job = normalizedJob(row.job as JobRecord);
+    const scope = job.chapterId ?? '';
+    const version = (counts.get(scope) ?? 0) + 1; counts.set(scope, version);
+    versions.push({ job, result: row.result, createdAt: new Date(row.created_at).toISOString(), version, identity: videoPlanIdentity(row.result.renderPlan, job.snapshot.assets, job.snapshot.settings) });
+  }
+  return versions;
+}
+async function historicalExportJobs(c: HistoryQuery, projectId: string): Promise<JobRecord[]> {
+  const rows = await c.query("SELECT data FROM jobs WHERE project_id=$1 AND data->>'kind'='export' AND data->>'status' IN ('queued','running','cancelling','succeeded') ORDER BY created_at DESC,id", [projectId]);
+  return rows.rows.map(row => normalizedJob(row.data as JobRecord));
+}
+function sameVideoExport(version: SavedVideoVersion, job: JobRecord): boolean {
+  if (job.projectId !== version.job.projectId || (job.chapterId ?? null) !== (version.job.chapterId ?? null) || !job.snapshot.renderPlan) return false;
+  try { return videoPlanIdentity(job.snapshot.renderPlan, job.snapshot.assets, job.snapshot.settings) === version.identity; }
+  catch { return false; }
+}
+async function availableVideoExport(c: HistoryQuery, version: SavedVideoVersion, exports: JobRecord[]): Promise<JobRecord | null> {
+  for (const job of [version.job, ...exports.filter(job => sameVideoExport(version, job))]) {
+    if (job.status !== 'succeeded' || !job.videoUrl) continue;
+    try { await assertResultArtifact(c, version.job.projectId, job.videoUrl, 'video'); return job; }
+    catch (failure) { if (!(failure instanceof AppError)) throw failure; }
+  }
+  return null;
+}
+async function versionSummary(c: HistoryQuery, project: Project, saved: SavedVideoVersion, exports: JobRecord[]): Promise<VideoVersionSummary> {
+  const exported = await availableVideoExport(c, saved, exports);
+  const pending = exports.find(job => ['queued', 'running', 'cancelling'].includes(job.status) && sameVideoExport(saved, job));
+  const chapter = saved.job.chapterId ? project.chapterVideos?.[saved.job.chapterId] : undefined;
+  const published = saved.job.chapterId ? chapter?.renderPlan : project.renderPlan;
+  const publishedRevision = saved.job.chapterId ? chapter?.previewRevision : project.previewRevision;
+  let current = false;
+  if (published && saved.job.outputRevision !== null && saved.job.outputRevision === publishedRevision) {
+    current = videoPlanIdentity(published, chapter?.previewAssets ?? project.previewAssets ?? [], chapter?.settings ?? project.settings) === saved.identity;
+  }
+  let subtitleUrl = exported?.subtitleUrl ?? saved.job.subtitleUrl;
+  if (subtitleUrl) try { await assertResultArtifact(c, project.id, subtitleUrl, 'subtitles'); } catch (failure) { if (!(failure instanceof AppError)) throw failure; subtitleUrl = null; }
+  return { id: saved.job.id, version: saved.version, chapterId: saved.job.chapterId ?? null, chapterTitle: saved.job.snapshot.chapters?.find(chapter => chapter.id === saved.job.chapterId)?.title ?? saved.result.lesson.title,
+    title: saved.result.lesson.title, createdAt: saved.createdAt, inputRevision: saved.job.inputRevision, outputRevision: saved.job.outputRevision, durationSeconds: saved.result.renderPlan.totalFrames / saved.result.renderPlan.fps,
+    settings: saved.job.snapshot.settings, current, videoUrl: exported?.videoUrl ?? null, subtitleUrl, exportJobId: exported?.id ?? pending?.id ?? null };
+}
+async function historyProject(id: string): Promise<Project> {
+  checkId(id); await initDb();
+  const rows = await getPool().query('SELECT data FROM projects WHERE id=$1', [id]);
+  if (!rows.rowCount) notFound('项目不存在');
+  return sourceSnapshot(rows.rows[0].data as Project);
+}
+export async function listVideoVersions(id: string, chapterId?: string): Promise<VideoVersionSummary[]> {
+  const project = await historyProject(id);
+  if (chapterId !== undefined && (!chapterId || chapterId.length > 80)) throw new AppError(422, 'INVALID_CHAPTER', '章节标识无效');
+  const [versions, exports] = await Promise.all([savedVideoVersions(getPool(), id, chapterId), historicalExportJobs(getPool(), id)]);
+  return Promise.all(versions.reverse().map(version => versionSummary(getPool(), project, version, exports)));
+}
+export async function getVideoVersion(id: string, versionId: string): Promise<VideoVersionDetail> {
+  checkId(versionId); const project = await historyProject(id);
+  const [versions, exports] = await Promise.all([savedVideoVersions(getPool(), id), historicalExportJobs(getPool(), id)]);
+  const saved = versions.find(version => version.job.id === versionId);
+  if (!saved) notFound('视频版本不存在或尚未完整生成');
+  return { ...await versionSummary(getPool(), project, saved, exports), lesson: saved.result.lesson, renderPlan: saved.result.renderPlan, assets: saved.job.snapshot.assets };
+}
+export async function submitVideoVersionExport(id: string, versionId: string, idempotencyKey?: string): Promise<JobRecord> {
+  checkId(id); checkId(versionId); await initDb();
+  if (idempotencyKey && (idempotencyKey.length > 200 || !/^[\x21-\x7e]+$/.test(idempotencyKey))) throw new AppError(400, 'INVALID_IDEMPOTENCY_KEY', '幂等键必须是 1–200 个可打印 ASCII 字符');
+  const requestHash = createHash('sha256').update(JSON.stringify({ kind: 'video-version-export', versionId })).digest('hex');
+  const job = await withTransaction(async c => {
+    await lockedProject(c, id);
+    if (idempotencyKey) {
+      const existing = await c.query('SELECT k.request_hash,j.data FROM idempotency_keys k JOIN jobs j ON j.id=k.job_id WHERE k.project_id=$1 AND k.key=$2', [id, idempotencyKey]);
+      if (existing.rowCount) {
+        if (existing.rows[0].request_hash !== requestHash) throw new AppError(409, 'IDEMPOTENCY_CONFLICT', '同一幂等键不能用于不同任务');
+        return normalizedJob(existing.rows[0].data as JobRecord);
+      }
+    }
+    const saved = (await savedVideoVersions(c, id)).find(version => version.job.id === versionId);
+    if (!saved) notFound('视频版本不存在或尚未完整生成');
+    const exports = await historicalExportJobs(c, id);
+    const reusable = await availableVideoExport(c, saved, exports) ?? exports.find(job => ['queued', 'running', 'cancelling'].includes(job.status) && sameVideoExport(saved, job));
+    if (reusable) {
+      if (idempotencyKey) await c.query('INSERT INTO idempotency_keys(project_id,key,request_hash,job_id) VALUES($1,$2,$3,$4)', [id, idempotencyKey, requestHash, reusable.id]);
+      return reusable;
+    }
+    // Validate the frozen version's resources, never today's project asset list.
+    const snapshot = sourceSnapshot(saved.job.snapshot);
+    for (const asset of snapshot.assets) {
+      const owned = await c.query('SELECT project_id FROM artifacts WHERE id=$1', [asset.id]);
+      if (!owned.rowCount || (owned.rows[0].project_id && owned.rows[0].project_id !== id)) throw new AppError(422, 'INVALID_ASSET', '历史素材不存在或不属于本项目');
+    }
+    const assets = await assertAssets(c, snapshot.assets);
+    if (assets.some((asset, index) => asset.hash !== snapshot.assets[index].hash)) throw new AppError(422, 'HISTORICAL_ASSET_CHANGED', '历史图片文件已变化，不能替换所选版本的原始画面');
+    await assertAlignedPlan(c, id, saved.result.renderPlan, saved.result.lesson, snapshot.settings, !!saved.job.chapterId);
+    const revision = saved.result.renderPlan.revision;
+    const frozen: ProjectSnapshot = { ...snapshot, lesson: saved.result.lesson, renderPlan: saved.result.renderPlan, revision, previewRevision: revision, previewAssets: snapshot.assets };
+    const timestamp = now();
+    const created: JobRecord = { id: randomUUID(), projectId: id, chapterId: saved.job.chapterId ?? null, videoVersionId: versionId, kind: 'export', status: 'queued', stage: 'queued', completed: 0, total: 0, inputRevision: saved.job.inputRevision, outputRevision: null,
+      error: null, diagnostics: [], videoUrl: null, subtitleUrl: null, createdAt: timestamp, updatedAt: timestamp, snapshot: frozen, sceneId: null, instruction: null, preview: null };
+    await c.query('INSERT INTO jobs(id,project_id,data) VALUES($1,$2,$3)', [created.id, id, JSON.stringify(created)]);
+    await c.query('INSERT INTO job_outbox(job_id) VALUES($1)', [created.id]);
+    if (idempotencyKey) await c.query('INSERT INTO idempotency_keys(project_id,key,request_hash,job_id) VALUES($1,$2,$3,$4)', [id, idempotencyKey, requestHash, created.id]);
+    await event(c, created, `导出视频版本 ${saved.version}，使用该版本已保存的画面与配音`);
+    return created;
+  });
+  if (process.env.OPENTUTOR_DISABLE_DISPATCH !== '1' && job.status === 'queued') void flushOutbox().catch(() => {});
+  return job;
 }

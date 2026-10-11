@@ -54,6 +54,7 @@ async function fixture(page: Page, introFrames: number, rate: number, boundarySe
       previewMode: 'aligned', narrationAudio: { url: '/api/artifacts/motion-timing-fixture.wav', durationSeconds: totalFrames / fps }, scenes: [{ scene, startFrame: 0, durationFrames: totalFrames, utterances }] },
     previewAssets: [], previewRevision: 1, latestExport: null, updatedAt: project.updatedAt, current: true };
   await page.route(`**/api/projects/${id}`, route => route.request().method() === 'GET' ? route.fulfill({ json: { project } }) : route.abort('blockedbyclient'));
+  await page.route(`**/api/projects/${id}/videos?*`, route => route.fulfill({ json: { versions: [] } }));
   await page.route('**/api/artifacts/motion-timing-fixture.wav', route => route.fulfill({ contentType: 'audio/wav', body: silenceWav(totalFrames / fps) }));
   await page.goto(`/projects/${id}`);
   await page.getByRole('tab', { name: '视频', exact: true }).click();

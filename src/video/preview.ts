@@ -88,7 +88,7 @@ export function buildPreviewPlan(lesson: Lesson, settings: GenerationSettings, r
       const oldAudio = oldText === utterance.text ? oldScene?.utterances.find(u => u.utteranceId === utterance.id && !u.estimated && u.url) : undefined;
       const candidate = speech.get(`${scene.id}:${utterance.id}`) ?? oldAudio;
       const audio = candidate?.url && Number.isFinite(candidate.durationSeconds) && candidate.durationSeconds > 0 ? candidate : undefined;
-      const durationSeconds = audio?.durationSeconds ?? Math.max(3, Math.min(90, [...utterance.text].length / (settings.language === 'zh-CN' ? 4.3 : 12)));
+      const durationSeconds = audio?.durationSeconds ?? Math.max(3, Math.min(90, [...utterance.text].length / (/^(zh|ja|ko)-/.test(settings.language) ? 4.3 : 12)));
       const durationFrames = Math.ceil(durationSeconds * fps);
       if (audio) ready++; else pending++;
       const clip = { ...(audio ?? { url: '', durationSeconds, boundaries: [{ kind: 'utterance' as const, text: utterance.text, startSeconds: 0, endSeconds: durationSeconds }], hash: '', cacheHit: false }), utteranceId: utterance.id, startFrame: localFrame, durationFrames, estimated: !audio };

@@ -5,15 +5,16 @@ import { videoIntentIds } from './video-intent';
 import type { RenderProgress } from './render-progress';
 import { DIAGRAM_HEIGHT, DIAGRAM_LANGUAGE, validateDiagram } from './diagram';
 import { MotionSchema } from './motion';
+import { VOICE_LOCALE_PATTERN, VOICE_NAME_PATTERN } from './voices';
 
 export const PaletteSchema = z.object({ background: z.string().regex(/^#[a-fA-F0-9]{6}$/), surface: z.string().regex(/^#[a-fA-F0-9]{6}$/), text: z.string().regex(/^#[a-fA-F0-9]{6}$/), muted: z.string().regex(/^#[a-fA-F0-9]{6}$/), accent: z.string().regex(/^#[a-fA-F0-9]{6}$/) }).strict();
 export type Palette = z.infer<typeof PaletteSchema>;
 
 export const SettingsSchema = z.object({
-  language: z.enum(['zh-CN', 'en-US']).default('zh-CN'),
+  language: z.string().max(50).regex(VOICE_LOCALE_PATTERN).default('zh-CN'),
   audience: z.string().min(1).max(200).default('普通观众'),
   mode: z.enum(['full', 'summary']).default('full'),
-  voice: z.string().regex(/^[a-z]{2,3}-[A-Z]{2}-[A-Za-z0-9]+Neural$/).default('zh-CN-XiaoxiaoNeural'),
+  voice: z.string().max(128).regex(VOICE_NAME_PATTERN).default('zh-CN-XiaoxiaoNeural'),
   rate: z.number().int().min(-50).max(100).default(0),
   theme: z.enum(['sage', 'ink', 'ocean', 'sunset']).default('sage'),
   resolution: z.enum(['720p', '1080p']).default('720p'),
@@ -74,7 +75,9 @@ export type JobStatus = 'queued' | 'running' | 'cancelling' | 'cancelled' | 'suc
 export type JobKind = 'preview' | 'compose' | 'speech' | 'generate' | 'rebuild' | 'export' | 'regenerate';
 export interface JobPreview { lesson: Lesson; renderPlan: RenderPlan | null; updatedAt: string }
 export interface ProjectSnapshot { id: string; title: string; markdown: string; chapters?: Chapter[]; context?: Chapter[]; chapterSourceKey?: string; sourceMode?: 'legacy' | 'chapters'; settings: GenerationSettings; assets: Asset[]; revision: number; lesson: Lesson | null; renderPlan?: RenderPlan | null; previewRevision?: number | null; previewAssets?: Asset[] }
-export interface JobRecord { id: string; projectId: string; chapterId?: string | null; kind: JobKind; status: JobStatus; stage: string; completed: number; total: number; inputRevision: number; outputRevision: number | null; error: string | null; diagnostics: Diagnostic[]; videoUrl: string | null; subtitleUrl: string | null; createdAt: string; updatedAt: string; snapshot: ProjectSnapshot; sceneId: string | null; instruction: string | null; preview?: JobPreview | null; renderProgress?: RenderProgress }
+export interface JobRecord { id: string; projectId: string; chapterId?: string | null; videoVersionId?: string; kind: JobKind; status: JobStatus; stage: string; completed: number; total: number; inputRevision: number; outputRevision: number | null; error: string | null; diagnostics: Diagnostic[]; videoUrl: string | null; subtitleUrl: string | null; createdAt: string; updatedAt: string; snapshot: ProjectSnapshot; sceneId: string | null; instruction: string | null; preview?: JobPreview | null; renderProgress?: RenderProgress }
+export interface VideoVersionSummary { id: string; version: number; chapterId: string | null; chapterTitle: string; title: string; createdAt: string; inputRevision: number; outputRevision: number | null; durationSeconds: number; settings: GenerationSettings; current: boolean; videoUrl: string | null; subtitleUrl: string | null; exportJobId: string | null }
+export interface VideoVersionDetail extends VideoVersionSummary { lesson: Lesson; renderPlan: RenderPlan; assets: Asset[] }
 export interface ProjectExport { jobId: string; revision: number; videoUrl: string; subtitleUrl?: string | null }
 export interface ChapterVideo { chapterId: string; sourceKey: string; settings: GenerationSettings; lesson: Lesson; renderPlan: RenderPlan | null; previewAssets: Asset[]; previewRevision: number; latestExport: ProjectExport | null; updatedAt: string; current?: boolean }
 export interface Project extends ProjectSnapshot { renderPlan: RenderPlan | null; previewRevision: number | null; latestJob: JobRecord | null; latestExport?: ProjectExport | null; chapterVideos?: Record<string, ChapterVideo>; chapterJobs?: Record<string, JobRecord>; createdAt: string; updatedAt: string }

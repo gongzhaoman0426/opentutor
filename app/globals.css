@@ -768,6 +768,17 @@ input[type='checkbox'] { accent-color: var(--sage); width: 11px; height: 11px; m
 .chapter-video-preview .creation-preview-toolbar { margin-bottom: 12px; }
 .chapter-video-preview .creation-preview-toolbar > .text-button { display: none; }
 .chapter-video-preview .creation-preview-description { font-size: 11px; }
+.video-version-picker { flex: 0 0 auto; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.video-version-select-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.video-version-select-row > label { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; font-size: 12px; color: var(--ink); }
+.video-version-select-row > label > svg, .video-version-select-row > label > span { flex-shrink: 0; }
+.video-version-select-row select { min-width: 0; width: 100%; flex: 1; padding: 7px 28px 7px 10px; border: 1px solid var(--line); border-radius: 6px; background-color: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.video-version-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 5px 12px; flex-wrap: wrap; margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.video-version-settings { color: var(--ink); }
+.video-version-error { display: flex; justify-content: space-between; gap: 12px; color: var(--error); padding-bottom: 12px; font-size: 12px; }
+.video-version-error > span { min-width: 0; overflow-wrap: anywhere; }
+.video-version-error .text-button { flex-shrink: 0; }
+@media (max-width: 650px) { .video-version-picker { padding-bottom: 6px; margin-bottom: 7px; } .video-version-select-row > label { font-size: 11px; gap: 6px; } .video-version-select-row select { padding: 4px 22px 4px 7px; } .video-version-meta { margin-top: 4px; font-size: 9px; } }
 .chapter-video-preview .creation-preview-options > .text-button { display: none; }
 .chapter-video-version-note { padding: 5px 0 13px; font-size: 11px; color: var(--warning); line-height: 1.6; }
 .chapter-video-empty { flex: 1; min-height: 0; background: #f1f5ed; border: 1px dashed #c7d5c0; border-radius: 7px; margin: 4px 0 20px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 30px 22px; color: var(--sage); }

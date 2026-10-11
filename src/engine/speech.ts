@@ -6,8 +6,9 @@ import { z } from 'zod';
 import { type Boundary, type SpeechResult } from '../shared/schema';
 import { cacheDirectory, publishFile } from '../server/artifacts';
 import { abortableDelay, runProcess, withAbort } from './process';
+import { VOICE_NAME_PATTERN, voicePreviewText, type Voice } from '../shared/voices';
 
-export interface Voice { name: string; locale: string; gender: string; displayName: string }
+export type { Voice } from '../shared/voices';
 interface RawBoundary { kind: 'word' | 'sentence'; text: string; offsetTicks: number; durationTicks: number }
 const ADAPTER_VERSION = 'edge-tts-7.2.8-pcm-trim-v3';
 const LEGACY_VERSION = 'edge-tts-7.2.8-sentence-mp3-v2';
@@ -122,7 +123,7 @@ export function normalizeBoundaries(raw: RawBoundary[], durationSeconds: number,
 export async function synthesizeSpeech(text: string, voice: string, rate: number, options: { signal?: AbortSignal; ownerProjectId?: string; onWarning?: (message: string) => void | Promise<void> } = {}): Promise<SpeechResult> {
   const speechText = normalizeSpeechText(text);
   if (!speechText || speechText.length > 2000) throw new Error('单段讲稿须包含 1–2000 个字符，请拆分为语义段');
-  if (!/^[a-z]{2,3}-[A-Z]{2}-[A-Za-z0-9]+Neural$/.test(voice) || !Number.isInteger(rate) || rate < -50 || rate > 100) throw new Error('音色或语速配置无效');
+  if (!VOICE_NAME_PATTERN.test(voice) || voice.length > 128 || !Number.isInteger(rate) || rate < -50 || rate > 100) throw new Error('音色或语速配置无效');
   options.signal?.throwIfAborted();
   const hash = speechCacheKey(speechText, voice, rate);
   const directory = await cacheDirectory('speech');
@@ -209,5 +210,5 @@ export async function synthesizeSpeech(text: string, voice: string, rate: number
 }
 
 export async function previewVoice(voice: string, rate: number, text?: string, signal?: AbortSignal): Promise<SpeechResult> {
-  return synthesizeSpeech((text || (voice.startsWith('zh-') ? '欢迎来到 OpenTutor。用文字和图片，创作属于你的视频。' : 'Welcome to OpenTutor. Turn your words and images into expressive videos.')).slice(0, 300), voice, rate, { signal });
+  return synthesizeSpeech((text || voicePreviewText(voice)).slice(0, 300), voice, rate, { signal });
 }

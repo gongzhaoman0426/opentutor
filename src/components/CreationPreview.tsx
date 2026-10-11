@@ -9,9 +9,9 @@ import { formatTime } from './api';
 
 const playerStyle = { width: '100%', height: '100%' } as const;
 
-export function CreationPreview({ plan, assets, player, revisionKey, selected, onSelect, sourceDraft, dirty, onScenes, compact = false }: {
+export function CreationPreview({ plan, assets, player, revisionKey, selected, onSelect, sourceDraft, dirty, onScenes, compact = false, versionLabel }: {
   plan: RenderPlan; assets: Asset[]; player: RefObject<PlayerRef | null>; revisionKey: string;
-  selected: string; onSelect: (id: string) => void; sourceDraft: boolean; dirty: boolean; onScenes: () => void; compact?: boolean;
+  selected: string; onSelect: (id: string) => void; sourceDraft: boolean; dirty: boolean; onScenes: () => void; compact?: boolean; versionLabel?: string;
 }) {
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -37,7 +37,7 @@ export function CreationPreview({ plan, assets, player, revisionKey, selected, o
   useEffect(() => { if (player.current && player.current.getCurrentFrame() >= plan.totalFrames) player.current.seekTo(Math.max(0, plan.totalFrames - 1)); }, [plan.totalFrames, player]);
   const currentScene = plan.scenes.find(scene => frame >= scene.startFrame && frame < scene.startFrame + scene.durationFrames) ?? plan.scenes[0];
   return <>
-    <div className="creation-preview-toolbar"><div><span className={`creation-preview-indicator ${estimated ? 'draft' : ''}`} /><strong>{sourceDraft ? '文稿草稿预览' : dirty ? compact ? '上一版预览' : '编辑草稿预览' : plan.previewMode === 'partial' ? '配音未完成 · 增量预览' : estimated ? '场景预览' : '视频预览'}</strong><span>v{plan.revision}</span></div>{!compact && <button className="text-button" onClick={onScenes}><Layers3 size={14} />{plan.scenes.length} 个场景</button>}</div>
+    <div className="creation-preview-toolbar"><div><span className={`creation-preview-indicator ${estimated ? 'draft' : ''}`} /><strong>{sourceDraft ? '文稿草稿预览' : dirty ? compact ? '保留版本预览' : '编辑草稿预览' : plan.previewMode === 'partial' ? '配音未完成 · 增量预览' : estimated ? '场景预览' : '视频预览'}</strong>{versionLabel && <span>{versionLabel}</span>}</div>{!compact && <button className="text-button" onClick={onScenes}><Layers3 size={14} />{plan.scenes.length} 个场景</button>}</div>
     <div className="creation-player-area"><div className="creation-player-fit" style={{ aspectRatio: `${plan.width}/${plan.height}` }}>{previewPlayer}</div></div>
     <div className="creation-preview-description"><span>{sourceDraft ? '原稿分镜，尚未经过 AI 分镜编排。' : dirty ? compact ? '这是保留的旧版预览，本章文稿或设置已更新。' : '内容修改即时可见；需要更新的配音使用无声预览。' : estimated ? `真实配音 ${ready} / ${count} 段，其余段落按预计时长无声播放。` : '配音、字幕与画面已同步。'}</span><span>{plan.width} × {plan.height}</span></div>
     <div className="creation-transport"><div className="creation-play-controls"><button className="icon-button" onClick={() => { player.current?.pause(); player.current?.seekTo(initialFrame); }} aria-label="回到视频开始"><SkipBack size={17} /></button><button className="creation-play-button" aria-label={playing ? '暂停预览' : '播放预览'} onClick={() => player.current?.toggle()}>{playing ? <Pause size={18} /> : <Play size={18} fill="currentColor" />}</button><button className="icon-button" aria-label={muted ? '开启预览声音' : '静音预览'} onClick={() => { if (muted) player.current?.unmute(); else player.current?.mute(); setMuted(!muted); }}>{muted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button></div><span className="creation-timecode">{formatTime(frame / plan.fps)} <i>/</i> {estimated ? '预计 ' : ''}{formatTime(plan.totalFrames / plan.fps)}</span><div className="creation-preview-options">{!compact && <label><input type="checkbox" checked={subtitles} onChange={event => setSubtitles(event.target.checked)} />字幕</label>}{!compact && <button className={`text-button ${timelineOpen ? 'active' : ''}`} onClick={() => setTimelineOpen(!timelineOpen)} aria-expanded={timelineOpen}>时间轴{timelineOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}</button>}<button className="icon-button" aria-label="全屏预览" title="全屏预览" onClick={() => player.current?.requestFullscreen()}><Maximize2 size={16} /></button></div></div>

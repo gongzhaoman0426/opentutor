@@ -24,6 +24,19 @@ async function registeredAudio(p: Project) {
   const file = path.join(dataDir, randomUUID()); await writeFile(file, 'registered-audio-fixture');
   return artifacts.publishFile(file, 'audio/mpeg', 'speech.mp3', p.id);
 }
+async function registeredVideo(p: Project) {
+  const file = path.join(dataDir, randomUUID()); await writeFile(file, 'registered-video-fixture');
+  return artifacts.publishFile(file, 'video/mp4', 'video.mp4', p.id);
+}
+async function generatedChapter(project: Project, chapterId = 'a', label = '第一版') {
+  const job = await store.submitJob(project.id, { kind: 'preview', chapterId, expectedRevision: project.revision });
+  const claimed = await store.claimJob(job.id); expect(claimed).not.toBeNull();
+  const audio = await registeredAudio(project);
+  const value: Lesson = { ...lesson, title: label, scenes: lesson.scenes.map(scene => ({ ...scene, title: label, objects: scene.objects.map(object => ({ ...object, content: label })), narration: scene.narration.map(unit => ({ ...unit, text: label })) })) };
+  const result = chapterResult(project, job, audio.url, value);
+  await store.completeJob(job.id, result, claimed!.leaseToken);
+  return { project: await store.getProject(project.id), job: await store.getJob(job.id), result, claimed: claimed! };
+}
 function chapterResult(p: Project, job: JobRecord, url: string, value: Lesson = lesson) {
   const chapterLesson = { ...value, scenes: value.scenes.map(scene => ({ ...scene, ...(job.chapterId ? { chapterId: job.chapterId } : {}) })) };
   return { lesson: chapterLesson, renderPlan: planFor({ ...p, settings: job.snapshot.settings, revision: job.snapshot.revision }, chapterLesson, url, 'aligned') };
@@ -44,7 +57,127 @@ afterAll(async () => {
   if (admin) { await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); }
   if (dataDir) await rm(dataDir, { recursive: true, force: true });
 });
+describe('immutable chapter video history', () => {
+  const chapters = [{ id: 'a', title: 'A', markdown: 'A 原稿' }, { id: 'b', title: 'B', markdown: 'B 原稿' }];
+  it('numbers actual completed videos per chapter without counting saves, failures, partials, IR or exports', async () => {
+    let p = await store.createProject({ title: '视频版本计数', chapters });
+    const first = await generatedChapter(p); p = first.project;
+    for (let index = 0; index < 4; index++) p = await store.updateProject(p.id, { ...patch(p), title: `保存 ${index}`, chapters: p.chapters });
+    const failed = await store.submitJob(p.id, { kind: 'preview', chapterId: 'a', expectedRevision: p.revision });
+    const owner = await store.claimJob(failed.id);
+    await store.updateJobPreview(failed.id, { lesson: first.result.lesson, renderPlan: { ...first.result.renderPlan, revision: failed.snapshot.revision, previewMode: 'partial' } }, owner!.leaseToken);
+    await store.failJob(failed.id, '模拟生成失败', owner!.leaseToken);
+    const cancelled = await store.submitJob(p.id, { kind: 'preview', chapterId: 'a', expectedRevision: p.revision }); await store.cancelJob(cancelled.id);
+    const composed = await store.submitJob(p.id, { kind: 'compose', chapterId: 'a', expectedRevision: p.revision });
+    const composer = await store.claimJob(composed.id); await store.completeJob(composed.id, { lesson: first.result.lesson }, composer!.leaseToken); p = await store.getProject(p.id);
+    const second = await generatedChapter(p, 'a', '第二版'); p = second.project;
+    // Re-delivery after an already successful completion cannot add a version.
+    await store.completeJob(second.job.id, second.result, second.claimed.leaseToken);
+    const other = await generatedChapter(p, 'b', 'B 第一版'); p = other.project;
+    const versions = await store.listVideoVersions(p.id, 'a');
+    expect(versions.map(version => [version.id, version.version])).toEqual([[second.job.id, 2], [first.job.id, 1]]);
+    expect(versions.map(version => version.current)).toEqual([true, false]);
+    expect(versions[0].outputRevision).toBeGreaterThan(2);
+    expect((await store.listVideoVersions(p.id, 'b')).map(version => version.version)).toEqual([1]);
+    const frozen = await store.getVideoVersion(p.id, first.job.id);
+    expect(frozen.renderPlan).toEqual(first.result.renderPlan);
+    expect(frozen.lesson).toEqual(first.result.lesson);
+    expect(frozen.settings).toEqual(first.job.snapshot.settings);
+    expect(frozen.assets).toEqual(first.job.snapshot.assets);
+    await store.deleteProject(p.id);
+  });
+  it('retains successful results that finish after the source changes and prevents cross-project access', async () => {
+    let p = await store.createProject({ title: '过期完成', chapters });
+    const other = await store.createProject({ title: '别的项目', chapters });
+    const job = await store.submitJob(p.id, { kind: 'preview', chapterId: 'a', expectedRevision: p.revision });
+    const owner = await store.claimJob(job.id); const audio = await registeredAudio(p);
+    const result = chapterResult(p, job, audio.url);
+    p = await store.updateProject(p.id, { ...patch(p), chapters: p.chapters!.map(chapter => chapter.id === 'a' ? { ...chapter, markdown: '改过的正文' } : chapter) });
+    await store.completeJob(job.id, result, owner!.leaseToken);
+    expect((await store.getJob(job.id)).outputRevision).toBeNull();
+    expect((await store.getProject(p.id)).chapterVideos?.a).toBeUndefined();
+    expect(await store.listVideoVersions(p.id, 'a')).toMatchObject([{ id: job.id, version: 1, current: false }]);
+    expect((await store.getVideoVersion(p.id, job.id)).renderPlan).toEqual(result.renderPlan);
+    await expect(store.getVideoVersion(other.id, job.id)).rejects.toMatchObject({ status: 404 });
+    await expect(store.submitVideoVersionExport(other.id, job.id)).rejects.toMatchObject({ status: 404 });
+    await store.deleteProject(p.id); await store.deleteProject(other.id);
+  });
+  it('exports frozen history during new generation without changing the current draft, preview or numbering', async () => {
+    const image = await artifacts.uploadImage(await sharp({ create: { width: 24, height: 24, channels: 3, background: '#457862' } }).png().toBuffer(), 'original.png');
+    let p = await store.createProject({ title: '历史导出', chapters, assets: [image] });
+    const first = await generatedChapter(p); p = first.project;
+    const second = await generatedChapter(p, 'a', '第二版'); p = second.project;
+    const japanese = SettingsSchema.parse({ language: 'ja-JP', voice: 'ja-JP-NanamiNeural', resolution: '1080p' });
+    p = await store.updateProject(p.id, { ...patch(p), assets: [], chapters: p.chapters!.map(chapter => chapter.id === 'a' ? { ...chapter, markdown: '下一版文稿', settings: japanese } : chapter) });
+    const active = await store.submitJob(p.id, { kind: 'preview', chapterId: 'a', expectedRevision: p.revision });
+    const [exported, duplicate] = await Promise.all([store.submitVideoVersionExport(p.id, first.job.id, 'old-version-download'), store.submitVideoVersionExport(p.id, first.job.id, 'old-version-download')]);
+    expect(duplicate.id).toBe(exported.id);
+    expect(exported.videoVersionId).toBe(first.job.id);
+    expect(exported.snapshot.settings).toEqual(first.job.snapshot.settings);
+    expect(exported.snapshot.markdown).toBe(first.job.snapshot.markdown);
+    expect(exported.snapshot.assets).toEqual(first.job.snapshot.assets);
+    expect(exported.snapshot.lesson).toEqual(first.result.lesson);
+    expect(exported.snapshot.renderPlan).toEqual(first.result.renderPlan);
+    expect(exported.snapshot.previewRevision).toBe(exported.snapshot.revision);
+    expect((await store.getProject(p.id)).chapterJobs?.a.id).toBe(active.id);
+    const owner = await store.claimJob(exported.id); const video = await registeredVideo(p);
+    const before = await store.getProject(p.id);
+    expect(before.assets).toEqual([]);
+    expect(exported.snapshot.assets.map(asset => asset.id)).toEqual([image.id]);
+    await expect(store.completeJob(exported.id, first.result, owner!.leaseToken)).rejects.toMatchObject({ code: 'VIDEO_VERSION_MISMATCH' });
+    await expect(store.completeJob(exported.id, { ...second.result, videoUrl: video.url }, owner!.leaseToken)).rejects.toMatchObject({ code: 'VIDEO_VERSION_MISMATCH' });
+    await store.completeJob(exported.id, { ...first.result, videoUrl: video.url }, owner!.leaseToken);
+    const after = await store.getProject(p.id);
+    expect(after.revision).toBe(before.revision);
+    expect(after.chapters).toEqual(before.chapters);
+    expect(after.chapterVideos).toEqual(before.chapterVideos);
+    expect(after.chapterJobs?.a.id).toBe(active.id);
+    expect((await store.getJob(exported.id)).status).toBe('succeeded');
+    const versions = await store.listVideoVersions(p.id, 'a');
+    expect(versions).toHaveLength(2);
+    expect(versions.find(item => item.id === first.job.id)?.videoUrl).toBe(video.url);
+    expect(versions.find(item => item.id === second.job.id)?.videoUrl).toBeNull();
+    expect((await store.submitVideoVersionExport(p.id, first.job.id)).id).toBe(exported.id);
+    await rm(video.path);
+    expect((await store.getVideoVersion(p.id, first.job.id)).videoUrl).toBeNull();
+    const retry = await store.submitVideoVersionExport(p.id, first.job.id);
+    expect(retry.id).not.toBe(exported.id); expect(retry.status).toBe('queued');
+    await store.cancelJob(retry.id); await store.cancelJob(active.id); await store.deleteProject(p.id);
+  });
+  it('associates existing exports by the exact generated plan instead of sharing one file across same-source generations', async () => {
+    let p = await store.createProject({ title: '旧成片归属', chapters });
+    const first = await generatedChapter(p); p = first.project;
+    const exported = await store.submitJob(p.id, { kind: 'export', chapterId: 'a', expectedRevision: p.revision });
+    const owner = await store.claimJob(exported.id); const video = await registeredVideo(p);
+    await store.completeJob(exported.id, { lesson: exported.snapshot.lesson!, renderPlan: exported.snapshot.renderPlan!, videoUrl: video.url }, owner!.leaseToken);
+    p = await store.getProject(p.id);
+    const second = await generatedChapter(p, 'a', '同稿重新编排'); p = second.project;
+    expect(second.job.snapshot.chapterSourceKey).toBe(first.job.snapshot.chapterSourceKey);
+    const versions = await store.listVideoVersions(p.id, 'a');
+    expect(versions.map(version => [version.version, version.videoUrl])).toEqual([[2, null], [1, video.url]]);
+    expect((await store.submitVideoVersionExport(p.id, first.job.id)).id).toBe(exported.id);
+    await store.deleteProject(p.id);
+  });
+});
+
 describe('durable PostgreSQL task transactions', () => {
+  it('persists multilingual settings in chapters and freezes the selected language with its voice', async () => {
+    const japanese = SettingsSchema.parse({ language: 'ja-JP', voice: 'ja-JP-NanamiNeural' });
+    const p = await store.createProject({ title: '语言设置', settings: japanese, chapters: [{ id: 'a', title: '章节', markdown: '这是源文稿。' }] });
+    expect((await store.getProject(p.id)).settings).toEqual(japanese);
+    const job = await store.submitJob(p.id, { kind: 'preview', chapterId: 'a', expectedRevision: p.revision });
+    const english = SettingsSchema.parse({ language: 'en-US', voice: 'en-US-AriaNeural' });
+    await store.updateProject(p.id, { ...patch(p), settings: english, chapters: p.chapters });
+    expect((await store.getJob(job.id)).snapshot.settings).toEqual(japanese);
+    await store.cancelJob(job.id); await store.deleteProject(p.id);
+  });
+  it('keeps historical mismatched settings readable but rejects new generation before queuing', async () => {
+    const p = await store.createProject({ title: '旧设置', markdown: '正文', settings: SettingsSchema.parse({ language: 'en-US' }) });
+    expect((await store.getProject(p.id)).settings.voice).toBe('zh-CN-XiaoxiaoNeural');
+    await expect(store.submitJob(p.id, { kind: 'preview', expectedRevision: p.revision })).rejects.toMatchObject({ code: 'VOICE_LANGUAGE_MISMATCH' });
+    expect((await store.getProject(p.id)).latestJob).toBeNull();
+    await store.deleteProject(p.id);
+  });
   it('persists render frame telemetry without appending events for every progress update', async () => {
     const p = await store.createProject({ title: 'render telemetry', markdown: '# 内容' });
     const job = await store.submitJob(p.id, { kind: 'generate', expectedRevision: 1 });

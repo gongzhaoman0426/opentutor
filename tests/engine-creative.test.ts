@@ -102,7 +102,8 @@ describe('creative model and actual SVG code generation', () => {
     };
     const result = await compileLesson(markdown, { ...defaultSettings, model: 'selected-model' }, [], { source: target, contextSource: context, lessonTitle: '运动', courseTitle: '全课', runner });
     expect(calls).toEqual(['overview', 'director']);
-    expect(result.lesson.title).toBe('运动');
+    expect(result.lesson.title).toBe(targetLesson.title);
+    expect(target.chapters?.[0].title).toBe('运动');
     expect(result.lesson.scenes.every(scene => scene.chapterId === 'a')).toBe(true);
   });
 });

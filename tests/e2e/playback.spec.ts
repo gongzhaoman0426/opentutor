@@ -32,6 +32,7 @@ test('advances the preview clock in real time without automatically rewinding th
   project.sourceMode = 'chapters';
   project.chapterVideos = { 'clock-chapter': { chapterId: 'clock-chapter', sourceKey: getChapterSourceKey(project, project.chapters[0]), settings: project.settings, lesson: project.lesson!, renderPlan: project.renderPlan, previewAssets: [], previewRevision: 1, latestExport: null, updatedAt: project.updatedAt, current: true } };
   await page.route(`**/api/projects/${id}`, route => route.fulfill({ json: { project } }));
+  await page.route(`**/api/projects/${id}/videos?*`, route => route.fulfill({ json: { versions: [] } }));
   const audio = wave(10);
   await page.route('**/api/artifacts/playback-*', route => route.fulfill({ contentType: 'audio/wav', body: audio }));
   await page.addInitScript(() => {

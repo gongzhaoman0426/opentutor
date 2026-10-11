@@ -13,6 +13,7 @@ import type { CompletedResult } from '../server/store';
 import { validateCustomLesson } from './custom-validation';
 import { videoDirection } from '../shared/video-intent';
 import { renderPhaseLabels, type RenderProgress } from '../shared/render-progress';
+import { voiceLocale } from '../shared/voices';
 
 export interface PipelinePreview { lesson: Lesson; renderPlan: RenderPlan | null }
 export interface PipelineReporter {
@@ -63,6 +64,7 @@ export async function runPipeline(job: JobRecord, signal: AbortSignal, reporter:
     await reporter.preview({ lesson, renderPlan });
   };
   signal.throwIfAborted();
+  if (job.kind !== 'export' && voiceLocale(snapshot.settings.voice) !== snapshot.settings.language) throw new Error('音色与视频语言不匹配，请在生成设置中重新选择该语言的音色');
   await reporter.progress('parse', 0, 1, '解析 Markdown 并建立来源映射');
   const { source, contextSource } = pipelineSources(job);
   for (const diagnostic of source.diagnostics) await reporter.diagnostic(diagnostic);
@@ -176,5 +178,5 @@ export function validateExportPlan(plan: RenderPlan, lesson: Lesson, voice: stri
 
 export function directorCacheKey(job: Pick<JobRecord, 'kind' | 'snapshot' | 'sceneId' | 'instruction'>): string {
   const { markdown, settings, assets, lesson } = job.snapshot;
-  return createHash('sha256').update(JSON.stringify({ version: 'codex-director-general-prompts-v9', owner: job.snapshot.id, title: job.snapshot.title, sourceMode: job.snapshot.sourceMode || 'legacy', chapterSourceKey: job.snapshot.chapterSourceKey, chapters: job.snapshot.sourceMode === 'chapters' ? job.snapshot.chapters : undefined, model: settings.model || process.env.CODEX_MODEL || 'configured', markdown, settings: { ...videoDirection(settings), language: settings.language, audience: settings.audience, mode: settings.mode, creationMode: settings.creationMode, stylePrompt: settings.stylePrompt, theme: settings.theme }, assets: assets.map(({ id, name, hash, mime }) => ({ id, name, hash, mime })), ...(job.kind === 'regenerate' ? { kind: 'regenerate', lesson, sceneId: job.sceneId, instruction: job.instruction } : { kind: 'generate' }) })).digest('hex');
+  return createHash('sha256').update(JSON.stringify({ version: 'codex-director-target-language-v10', owner: job.snapshot.id, title: job.snapshot.title, sourceMode: job.snapshot.sourceMode || 'legacy', chapterSourceKey: job.snapshot.chapterSourceKey, chapters: job.snapshot.sourceMode === 'chapters' ? job.snapshot.chapters : undefined, model: settings.model || process.env.CODEX_MODEL || 'configured', markdown, settings: { ...videoDirection(settings), language: settings.language, audience: settings.audience, mode: settings.mode, creationMode: settings.creationMode, stylePrompt: settings.stylePrompt, theme: settings.theme }, assets: assets.map(({ id, name, hash, mime }) => ({ id, name, hash, mime })), ...(job.kind === 'regenerate' ? { kind: 'regenerate', lesson, sceneId: job.sceneId, instruction: job.instruction } : { kind: 'generate' }) })).digest('hex');
 }
