@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileLesson, regenerateScene, type JsonRunner } from '../src/engine/codex';
-import { nearbyCodeContext, validateSelfContainedVisuals } from '../src/engine/visual-direction';
+import { nearbyCodeContext, SELF_CONTAINED_VISUALS, validateSelfContainedVisuals } from '../src/engine/visual-direction';
+import { DIAGRAM_COMPONENT_API } from '../src/shared/diagram';
 import { defaultSettings, validateLesson, type Lesson, type Scene } from '../src/shared/schema';
 import { parseSource } from '../src/shared/source';
 
@@ -38,11 +39,53 @@ describe('self-contained video direction', () => {
     expect(validateSelfContainedVisuals(lesson)).toEqual([]);
   });
 
-  it('rejects source-page narration even beside a generated drawing, but preserves actual image attribution', () => {
+  it('rejects explicit directions to an absent source figure, but preserves actual image attribution', () => {
     const lesson = example(true);
-    lesson.scenes[0].narration[0].text = '原文的交互式环境图支持逐行执行，并可载入 Online Python Tutor。';
+    lesson.scenes[0].narration[0].text = '请查看原文的交互式环境图，再在原网页逐行执行。';
     expect(validateSelfContainedVisuals(lesson)[0]?.code).toBe('SOURCE_PAGE_LEAK');
     lesson.scenes[0].objects[0] = { id: 'graphic', type: 'image', content: 'source-figure', language: '' };
+    expect(validateSelfContainedVisuals(lesson)).toEqual([]);
+  });
+
+  it('keeps topic-specific examples out of the universal visual and diagram instructions', () => {
+    for (const example of ['square(', 'mul(', 'x=-2', 'return 4', 'Edit this code', 'Python Tutor']) expect(SELF_CONTAINED_VISUALS).not.toContain(example);
+    expect(SELF_CONTAINED_VISUALS).toContain('even if no image was supplied');
+    expect(SELF_CONTAINED_VISUALS).toContain('intentional text composition');
+    expect(SELF_CONTAINED_VISUALS).toContain('never invent missing empirical values');
+    expect(DIAGRAM_COMPONENT_API).toContain('不要把所有内容都改写成流程图');
+  });
+
+  it('allows source figures as story events, book criticism and conceptual discussion without demanding an image', () => {
+    for (const text of ['她把书中的插图撕下来，夹进日记。', '她看着书中的流程图笑了，那让她想起童年的游戏。', '书中的图表将城市的贫富差距呈现为一条曲线，这成为争论的焦点。', '这部片子讨论的是教材中的流程图为何难以阅读。', '作者借原文的图表批评这种叙事方式。', '点击视频简介中的链接，查看活动详情。']) {
+      const lesson = example(); lesson.scenes[0].title = '故事与评论';
+      lesson.scenes[0].objects[0].content = text; lesson.scenes[0].narration[0].text = text;
+      expect(validateSelfContainedVisuals(lesson)).toEqual([]);
+    }
+  });
+
+  it('treats an interactive-book description as reviewable attribution, not a failed visual promise', async () => {
+    const material = '这本互动图像小说让读者参与叙事。书中的图表允许读者选择不同结局，这是作品结构的一部分。';
+    const input = parseSource(material);
+    let calls = 0;
+    const result = await compileLesson(material, { ...defaultSettings, videoIntent: 'story' }, [], { runner: async () => {
+      calls++;
+      const output = example(); output.title = '互动作品评论'; output.scenes[0].title = '参与叙事';
+      output.scenes[0].sourceBlockIds = input.blocks.map(block => block.id);
+      output.scenes[0].objects[0].content = '读者也参与了作品的叙事。'; output.scenes[0].narration[0].text = material;
+      return JSON.stringify(output);
+    } });
+    expect(calls).toBe(1);
+    expect(result.diagnostics.some(issue => issue.code === 'SOURCE_REFERENCE_REVIEW' && issue.severity === 'warning')).toBe(true);
+    expect(result.diagnostics.some(issue => issue.code === 'DSL_REPAIR' || issue.severity === 'error')).toBe(false);
+  });
+
+  it('still requires a drawn visual when a non-programming narration promises one', () => {
+    const lesson = example(); lesson.scenes[0].title = '审批关系';
+    lesson.scenes[0].objects[0].content = '提交、审核、确认。';
+    lesson.scenes[0].narration[0].text = '请观察这张图中各个参与方的关系。';
+    expect(validateSelfContainedVisuals(lesson)[0]?.code).toBe('MISSING_VISUAL_DEMONSTRATION');
+    lesson.scenes[0].objects = [{ ...diagram, content: JSON.stringify({ nodes: [{ id: 'submit', label: '提交' }, { id: 'review', label: '审核' }], edges: [{ from: 'submit', to: 'review' }] }) }];
+    lesson.scenes[0].narration[0].showObjectIds = ['graphic']; lesson.scenes[0].narration[0].focusObjectId = 'graphic';
     expect(validateSelfContainedVisuals(lesson)).toEqual([]);
   });
 
@@ -107,7 +150,7 @@ describe('self-contained video direction', () => {
     lesson.scenes[0].sourceBlockIds = longSource.blocks.slice(0, -1).map(block => block.id);
     lesson.scenes.push({ ...example().scenes[0], id: 'target', chapterId: 'long', sourceBlockIds: [longSource.blocks.at(-1)!.id] });
     await regenerateScene(lesson, 'target', '绘制绑定', longSource, defaultSettings, [], { runner: async prompt => {
-      const data = JSON.parse(prompt.split('LECTURE_DATA=')[1]);
+      const data = JSON.parse(prompt.split('VIDEO_DATA=')[1]);
       expect(data.chapterContext.markdown).not.toContain('def square');
       expect(data.chapterContext.nearbyCode).toEqual([expect.objectContaining({ content: expect.stringContaining('def square'), contextOnly: true })]);
       return JSON.stringify({ ...example(true).scenes[0], id: 'target', chapterId: 'long', sourceBlockIds: [longSource.blocks.at(-1)!.id] });

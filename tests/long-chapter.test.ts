@@ -7,9 +7,9 @@ import { batchImageOccurrences, chunkSource, CodexTurnTimeoutError, compileLesso
 import { defaultSettings, type Asset, type Lesson } from '../src/shared/schema';
 import { parseSource } from '../src/shared/source';
 
-type Payload = { title: string; settings: { stylePrompt: string }; paletteContext?: Lesson['palette']; sourceBlocks: { id: string; content: string }[]; chapterContext: Record<string, unknown>; courseOverview: { summary: string; chapters: { summary: string }[] } };
+type Payload = { title: string; settings: { stylePrompt: string }; paletteContext?: Lesson['palette']; sourceBlocks: { id: string; content: string }[]; chapterContext: Record<string, unknown>; projectOverview: { summary: string; chapters: { summary: string }[] } };
 const generatedPalette = { background: '#071D32', surface: '#0E3049', text: '#E9F7FF', muted: '#91AFBF', accent: '#38D9E6' };
-function payload(prompt: string): Payload { return JSON.parse(prompt.split('LECTURE_DATA=')[1].split('\nREPAIR_ERRORS=')[0]); }
+function payload(prompt: string): Payload { return JSON.parse(prompt.split('VIDEO_DATA=')[1].split('\nREPAIR_ERRORS=')[0]); }
 function result(data: Payload): string {
   const lesson: Lesson = { schemaVersion: '0.1', title: data.title, objectives: ['理解相邻知识点的联系'], scenes: [{ id: 's1', title: '知识点', chapter: '本章', layout: 'content', sourceBlockIds: [...new Set(data.sourceBlocks.map(block => block.id))], objects: [{ id: 'o1', type: 'text', content: '用实例连接相关概念。', language: '' }], narration: [{ id: 'u1', text: '我们通过实例理解这些相邻概念之间的联系。', showObjectIds: ['o1'], focusObjectId: 'o1' }] }] };
   return JSON.stringify({ ...lesson, ...(data.settings.stylePrompt ? { palette: data.paletteContext || generatedPalette } : {}) });
@@ -42,8 +42,8 @@ describe('bounded long chapter compilation', () => {
       expect(data.sourceBlocks.reduce((sum, block) => sum + block.content.length, 0)).toBeLessThanOrEqual(1800);
       expect(data.chapterContext).not.toHaveProperty('body');
       expect(data.chapterContext).not.toHaveProperty('allSourceBlockIds');
-      expect(data.courseOverview.summary.length).toBeLessThanOrEqual(700);
-      expect(data.courseOverview.chapters[0].summary.length).toBeLessThanOrEqual(600);
+      expect(data.projectOverview.summary.length).toBeLessThanOrEqual(700);
+      expect(data.projectOverview.chapters[0].summary.length).toBeLessThanOrEqual(600);
     }
     expect(batches.flatMap(batch => batch.sourceBlocks).map(block => block.content).join('')).toBe(source.blocks.map(block => block.markdown).join(''));
     expect(new Set(output.lesson.scenes.flatMap(scene => scene.sourceBlockIds))).toEqual(new Set(source.blocks.map(block => block.id)));

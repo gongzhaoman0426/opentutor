@@ -24,7 +24,7 @@ describe('creative model and actual SVG code generation', () => {
       let calls = 0;
       const runner: JsonRunner = async prompt => {
         calls++;
-        const payload = JSON.parse(prompt.split('LECTURE_DATA=')[1]);
+        const payload = JSON.parse(prompt.split('VIDEO_DATA=')[1]);
         return JSON.stringify({ ...lesson('教学结论。', 'text'), ...(payload.settings.stylePrompt ? { palette } : {}) });
       };
       const options = { source, runner, ownerProjectId: 'course-a', cacheDirectory: (name = 'cache') => { const target = path.join(directory, name); mkdirSync(target, { recursive: true }); return target; } };
@@ -61,7 +61,10 @@ describe('creative model and actual SVG code generation', () => {
       const contract = schema as { properties: { scenes: { items: { properties: { objects: { items: { properties: { type: { enum: string[] } } } } } } } } };
       expect(contract.properties.scenes.items.properties.objects.items.properties.type.enum).not.toContain('custom');
       if (calls === 1) return JSON.stringify(lesson());
-      expect(prompt).toContain('CUSTOM_MODE'); return JSON.stringify(lesson('方向持续改变。', 'text'));
+      expect(prompt).toContain('CUSTOM_MODE');
+      expect(prompt).toContain('Remove any unsupported custom code');
+      expect(prompt).not.toContain('Repair invalid custom code');
+      return JSON.stringify(lesson('方向持续改变。', 'text'));
     };
     const result = await compileLesson(markdown, defaultSettings, [], { source, runner });
     expect(calls).toBe(2); expect(result.lesson.scenes[0].objects[0].type).toBe('text');
@@ -91,10 +94,10 @@ describe('creative model and actual SVG code generation', () => {
     const calls: string[] = [];
     const runner: JsonRunner = async (prompt, _schema, _signal, _event, _images, runOptions) => {
       expect(runOptions?.model).toBe('selected-model');
-      if (prompt.includes('COURSE_DATA=')) { calls.push('overview'); return JSON.stringify({ summary: '先运动，再后续', objectives: ['理解'], chapters: chapters.map(c => ({ id: c.id, title: c.title, summary: c.markdown })) }); }
-      calls.push('director'); const payload = JSON.parse(prompt.split('LECTURE_DATA=')[1]);
+      if (prompt.includes('PROJECT_DATA=')) { calls.push('overview'); return JSON.stringify({ summary: '先运动，再后续', objectives: ['理解'], chapters: chapters.map(c => ({ id: c.id, title: c.title, summary: c.markdown })) }); }
+      calls.push('director'); const payload = JSON.parse(prompt.split('VIDEO_DATA=')[1]);
       expect(payload.sourceBlocks.every((block: { id: string }) => target.blocks.some(b => b.id === block.id))).toBe(true);
-      expect(payload.courseOverview.chapters).toHaveLength(2);
+      expect(payload.projectOverview.chapters).toHaveLength(2);
       return JSON.stringify(targetLesson);
     };
     const result = await compileLesson(markdown, { ...defaultSettings, model: 'selected-model' }, [], { source: target, contextSource: context, lessonTitle: '运动', courseTitle: '全课', runner });

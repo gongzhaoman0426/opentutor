@@ -9,36 +9,50 @@ import { analyzeSourceImages } from '../src/engine/images';
 import { directorCacheKey } from '../src/engine/pipeline';
 import { defaultSettings, SettingsSchema, validateLesson, type Asset, type GenerationSettings, type JobRecord, type Lesson } from '../src/shared/schema';
 import { parseSource } from '../src/shared/source';
+import { videoIntentIds } from '../src/shared/video-intent';
 
 const temporary: string[] = [];
 async function directory() { const value = await mkdtemp(path.join(os.tmpdir(), 'opentutor-video-intent-')); temporary.push(value); return value; }
 afterEach(async () => { await Promise.all(temporary.splice(0).map(value => rm(value, { recursive: true, force: true }))); });
 type Payload = { title?: string; settings: GenerationSettings; sourceBlocks: { id: string; chapter: string }[]; imageOccurrences?: { assetId: string; sourceBlockId: string }[]; chapters?: { id: string; title: string }[]; currentScene?: Lesson['scenes'][number] };
-function payload(prompt: string, marker = 'LECTURE_DATA='): Payload { return JSON.parse(prompt.split(marker)[1].split('\nREPAIR_ERRORS=')[0]); }
+function payload(prompt: string, marker = 'VIDEO_DATA='): Payload { return JSON.parse(prompt.split(marker)[1].split('\nREPAIR_ERRORS=')[0]); }
 function output(data: Payload): Lesson {
   const image = data.imageOccurrences?.[0];
   return { schemaVersion: '0.1', title: data.title || '城市夜行', objectives: ['呈现城市入夜后的变化'], scenes: [{ id: 'scene', title: '灯光亮起', chapter: data.sourceBlocks[0].chapter, layout: 'content', sourceBlockIds: data.sourceBlocks.map(block => block.id), objects: [{ id: 'visual', type: image ? 'image' : 'text', content: image?.assetId || '夜色渐深，灯光亮起。', language: '' }], narration: [{ id: 'line', text: '入夜，街边的灯光依次亮起。', showObjectIds: ['visual'], focusObjectId: 'visual' }] }] };
 }
 
 describe('general video direction', () => {
-  it('carries author direction through overview, batch, repair and regeneration while preserving a non-educational result', async () => {
+  it.each(videoIntentIds)('keeps the brief and neutral contracts through every planning/repair stage for %s', async intent => {
     const chapters = [{ id: 'a', title: '日落', markdown: '# 日落\n\n街头灯光亮起。' }, { id: 'b', title: '深夜', markdown: '# 深夜\n\n行人逐渐归家。' }];
     const markdown = chapters.map(chapter => chapter.markdown).join('\n\n');
-    const settings = SettingsSchema.parse({ videoIntent: 'story', creativeBrief: '城市氛围短片，用平静的观察者旁白', model: 'test-model' });
+    const settings = SettingsSchema.parse({ videoIntent: intent, creativeBrief: '城市氛围短片，用平静的观察者旁白', model: 'test-model', creationMode: 'creative' });
     const source = parseSource(markdown, [], chapters);
     const calls: string[] = [];
     let first = true;
     const runner: JsonRunner = async (prompt, schema, _signal, _event, _images, runOptions) => {
       expect(runOptions?.model).toBe('test-model');
       expect(prompt).toContain('SELF-CONTAINED VISUALS');
-      const overview = prompt.includes('COURSE_DATA=');
-      const data = payload(prompt, overview ? 'COURSE_DATA=' : 'LECTURE_DATA=');
-      expect(data.settings).toMatchObject({ videoIntent: 'story', creativeBrief: settings.creativeBrief });
+      // These examples once leaked into every topic via the shared instructions.
+      expect(prompt).not.toMatch(/square\(-2\)|mul\(x,x\)|负二乘以负二|返回4|局部帧|Edit this code|LECTURE_DATA=|COURSE_DATA=/);
+      expect(prompt).not.toContain('Aim for 3–6');
+      const overview = prompt.includes('PROJECT_DATA=');
+      const data = payload(prompt, overview ? 'PROJECT_DATA=' : 'VIDEO_DATA=');
+      expect(data.settings).toMatchObject({ videoIntent: intent, creativeBrief: settings.creativeBrief });
+      if (!data.currentScene) expect(JSON.stringify(schema)).toContain('Communication goals:');
       if (overview) { calls.push('overview'); return JSON.stringify({ summary: '从日落到深夜的城市氛围', objectives: ['呈现城市的时间变化'], chapters: data.chapters!.map(chapter => ({ id: chapter.id, title: chapter.title, summary: '时间与城市景象' })) }); }
       calls.push(data.currentScene ? 'regenerate' : prompt.includes('REPAIR_ERRORS=') ? 'repair' : 'batch');
       const jsonSchema = schema as { properties: { scenes?: { items: unknown }; objects?: unknown } };
-      expect(JSON.stringify(jsonSchema.properties.scenes?.items || jsonSchema.properties.objects)).not.toContain('"custom"');
-      if (data.currentScene) return JSON.stringify({ ...data.currentScene, title: '城市安静下来' });
+      expect(JSON.stringify(jsonSchema.properties.scenes?.items || jsonSchema.properties.objects)).toContain('"custom"');
+      expect(prompt).toContain('NARRATION-BOUND MOTION');
+      expect(prompt).toContain('抽象、情绪或氛围');
+      if (data.currentScene) {
+        expect(prompt).toContain('Do not output a palette field');
+        expect(prompt).not.toContain('returning palette=null');
+        const revised = { ...data.currentScene, title: '城市安静下来' };
+        if (!prompt.includes('REPAIR_ERRORS=')) revised.sourceBlockIds = ['invalid'];
+        else expect(prompt).toContain('Keep the requested purpose, tone');
+        return JSON.stringify(revised);
+      }
       const value = output(data);
       if (first) { first = false; value.scenes[0].sourceBlockIds = ['invalid']; }
       return JSON.stringify(value);
@@ -53,6 +67,23 @@ describe('general video direction', () => {
     expect(calls.at(-1)).toBe('regenerate');
   });
 
+  it('uses the existing palette during scene regeneration without requesting fields excluded by its schema', async () => {
+    const markdown = '入夜，街边的灯光亮起。';
+    const source = parseSource(markdown);
+    const settings = SettingsSchema.parse({ videoIntent: 'story', stylePrompt: '暖色夜景' });
+    const lesson = output({ settings, sourceBlocks: source.blocks });
+    lesson.palette = { background: '#181820', surface: '#24242c', text: '#ffffff', muted: '#ccccdd', accent: '#ffaa66' };
+    const result = await regenerateScene(lesson, 'scene', '保持意境，调整构图', source, settings, [], { runner: async (prompt, schema) => {
+      expect(prompt).toContain('Do not output a palette field');
+      expect(prompt).not.toContain('output five #RRGGBB colors');
+      const data = payload(prompt);
+      expect(JSON.parse(prompt.split('VIDEO_DATA=')[1]).palette).toEqual(lesson.palette);
+      expect((schema as { properties: unknown }).properties).not.toHaveProperty('palette');
+      return JSON.stringify(data.currentScene);
+    } });
+    expect(result.lesson.palette).toEqual(lesson.palette);
+  });
+
   it('reuses identical direction caches and invalidates overview and batches when intent or brief changes', async () => {
     const dir = await directory();
     const chapters = [{ id: 'a', title: '功能', markdown: '离线写作。' }, { id: 'b', title: '应用', markdown: '用于草稿整理。' }];
@@ -61,7 +92,7 @@ describe('general video direction', () => {
     let count = 0;
     const runner: JsonRunner = async prompt => {
       count++;
-      if (prompt.includes('COURSE_DATA=')) { const data = payload(prompt, 'COURSE_DATA='); return JSON.stringify({ summary: '功能与应用', objectives: ['介绍产品'], chapters: data.chapters!.map(chapter => ({ id: chapter.id, title: chapter.title, summary: chapter.title })) }); }
+      if (prompt.includes('PROJECT_DATA=')) { const data = payload(prompt, 'PROJECT_DATA='); return JSON.stringify({ summary: '功能与应用', objectives: ['介绍产品'], chapters: data.chapters!.map(chapter => ({ id: chapter.id, title: chapter.title, summary: chapter.title })) }); }
       return JSON.stringify(output(payload(prompt)));
     };
     const run = (settings: GenerationSettings) => compileLesson(markdown, settings, [], { runner, source, ownerProjectId: 'direction-cache', cacheDirectory: () => dir });

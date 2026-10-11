@@ -58,7 +58,7 @@ describe('real image input and grounded teaching references', () => {
       const contract = schema as { properties: { scenes: { items: { required: string[]; properties: { objects: { items: { required: string[] } } } } } } };
       expect(contract.properties.scenes.items.required).toContain('chapterId');
       expect(contract.properties.scenes.items.properties.objects.items.required).toContain('imagePresentation');
-      const payload = JSON.parse(prompt.split('LECTURE_DATA=')[1].split('\nREPAIR_ERRORS=')[0]);
+      const payload = JSON.parse(prompt.split('VIDEO_DATA=')[1].split('\nREPAIR_ERRORS=')[0]);
       const image = directorCalls > 1;
       return JSON.stringify({ schemaVersion: '0.1', title: '观察示意图', objectives: ['观察颜色'], scenes: [{ id: 's1', chapterId: null, title: '观察蓝色', chapter: '观察示意图', layout: 'content', sourceBlockIds: payload.sourceBlocks.map((b: { id: string }) => b.id), objects: [{ id: 'o1', type: image ? 'image' : 'text', content: image ? id : '蓝色说明', language: '', imagePresentation: image ? { fit: 'contain', caption: '蓝色示意图', region: { x: 0.9, y: 0.1, width: 0.5, height: 0.4 }, highlight: null } : null }], narration: [{ id: 'u1', text: '画面中展示蓝色示意图，观察它的颜色。', showObjectIds: ['o1'], focusObjectId: 'o1' }] }] });
     };

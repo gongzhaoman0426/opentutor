@@ -67,10 +67,10 @@ describe('director validation', () => {
     const published: number[] = [];
     let calls = 0;
     const runner: JsonRunner = async prompt => {
-      if (prompt.includes('COURSE_DATA=')) return JSON.stringify({ summary: '先概念后实例', objectives: ['理解概念'], chapters: chapters.map(c => ({ id: c.id, title: c.title, summary: c.markdown })) });
+      if (prompt.includes('PROJECT_DATA=')) return JSON.stringify({ summary: '先概念后实例', objectives: ['理解概念'], chapters: chapters.map(c => ({ id: c.id, title: c.title, summary: c.markdown })) });
       calls++;
       if (calls > 1) expect(published.length).toBe(calls - 1);
-      const payload = JSON.parse(prompt.split('LECTURE_DATA=')[1]);
+      const payload = JSON.parse(prompt.split('VIDEO_DATA=')[1]);
       const ids = new Set(payload.sourceBlocks.map((b: { id: string }) => b.id));
       return JSON.stringify({ ...full, scenes: full.scenes.filter(s => s.sourceBlockIds.some(id => ids.has(id))) });
     };
