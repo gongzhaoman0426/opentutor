@@ -4,6 +4,7 @@ import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import type { Palette } from '../shared/schema';
 import { validateCustomCode, validateNarrationCustomCode } from '../shared/custom';
 import type { MotionCueState } from '../shared/motion';
+import { ANIMATION_HELPERS_SOURCE } from '../shared/animation-helpers';
 
 let modulePromise: Promise<QuickJSWASMModule> | undefined;
 export function loadCustomRuntime() { return modulePromise ??= newQuickJSWASMModuleFromVariant(variant); }
@@ -11,7 +12,7 @@ type FrameGeometry = { fps: number; width: number; height: number; theme: Palett
 export type CustomFrame = FrameGeometry & ({ frame: number; progress: number; cues?: undefined } | { cues: Record<string, MotionCueState>; frame?: never; progress?: never });
 
 const tags = new Set('svg g rect circle ellipse line path polyline polygon text tspan defs linearGradient radialGradient stop clipPath'.split(' '));
-const attributes = new Set('xmlns viewBox width height x y x1 y1 x2 y2 cx cy r rx ry d points fill fill-opacity fill-rule stroke stroke-width stroke-opacity stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset opacity transform font-size font-family font-weight font-style text-anchor dominant-baseline alignment-baseline letter-spacing dx dy id offset stop-color stop-opacity gradientUnits gradientTransform spreadMethod fx fy fr clip-path clipPathUnits preserveAspectRatio vector-effect'.split(' '));
+const attributes = new Set('xmlns viewBox width height x y x1 y1 x2 y2 cx cy r rx ry d points pathLength fill fill-opacity fill-rule stroke stroke-width stroke-opacity stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset opacity transform font-size font-family font-weight font-style text-anchor dominant-baseline alignment-baseline letter-spacing dx dy id offset stop-color stop-opacity gradientUnits gradientTransform spreadMethod fx fy fr clip-path clipPathUnits preserveAspectRatio vector-effect'.split(' '));
 
 const fragment = /^url\(#([A-Za-z][\w-]*)\)$/;
 const paint = /^(?:#[\da-f]{3,4}|#[\da-f]{6}|#[\da-f]{8}|[a-z]+|(?:rgb|rgba|hsl|hsla)\([\d\s.,%+\-/]+\))$/i;
@@ -32,6 +33,7 @@ export function validateSvg(svg: string, idPrefix = ''): string {
       if (!attributes.has(attr.name)) throw new Error(`SVG 属性不支持：${attr.name}`);
       if (/[\\\u0000-\u001f\u007f]|\/\*|\*\//.test(attr.value)) throw new Error('SVG 属性不能包含 CSS 转义、控制字符或注释');
       if (attr.name === 'xmlns' && attr.value !== 'http://www.w3.org/2000/svg') throw new Error('SVG 命名空间无效');
+      if (attr.name === 'pathLength' && (!/^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(attr.value) || !Number.isFinite(Number(attr.value)) || Number(attr.value) <= 0)) throw new Error('SVG pathLength 必须是有限正数');
       const reference = fragment.exec(attr.value);
       if (['fill', 'stroke', 'stop-color'].includes(attr.name) && !paint.test(attr.value) && !reference) throw new Error('SVG 颜色必须是色值或内部渐变');
       if (attr.name === 'clip-path' && attr.value !== 'none' && !reference) throw new Error('SVG 裁剪必须引用内部路径');
@@ -82,7 +84,7 @@ export function renderCustomFrame(runtime: QuickJSWASMModule, code: string, inpu
     const payload = input.cues === undefined ? input : { fps: input.fps, width: input.width, height: input.height, theme: input.theme, cues: input.cues };
     const parameters = input.cues === undefined ? 'frame,fps,width,height,progress,theme' : 'fps,width,height,theme,cues';
     // No host objects or functions are injected. Each frame starts with a fresh heap.
-    const result = vm.evalCode(`"use strict";\nObject.defineProperty(globalThis, 'Date', {value: undefined});\nlet __seed = 1729; Math.random = () => ((__seed = (__seed * 1664525 + 1013904223) >>> 0) / 4294967296);\nconst input = ${JSON.stringify(payload)};\n(function({${parameters}}) {\n${code}\n})(input);`, 'component.js');
+    const result = vm.evalCode(`"use strict";\nObject.defineProperty(globalThis, 'Date', {value: undefined});\nlet __seed = 1729; Math.random = () => ((__seed = (__seed * 1664525 + 1013904223) >>> 0) / 4294967296);\nconst input = ${JSON.stringify(payload)};\nconst anim = ${ANIMATION_HELPERS_SOURCE}(input.fps);\n(function({${parameters}}) {\n${code}\n})(input);`, 'component.js');
     if (result.error) {
       const value = vm.dump(result.error); result.error.dispose();
       throw new Error(`组件执行失败：${value?.message || 'JavaScript 错误'}`);

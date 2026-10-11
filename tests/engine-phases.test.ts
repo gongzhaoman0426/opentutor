@@ -202,6 +202,28 @@ describe('independent generation stages', () => {
     expect(() => validateExportPlan(plan, edited, defaultSettings.voice, 0)).toThrow('不属于当前分镜');
     const estimated = structuredClone(plan); estimated.scenes[0].utterances[0].estimated = true;
     expect(() => validateExportPlan(estimated, fixture, defaultSettings.voice, 0)).toThrow('未完成配音');
+    expect(() => validateExportPlan(plan, fixture, defaultSettings.voice, 0, false)).toThrow('字幕设置');
+    expect(() => validateExportPlan({ ...plan, burnSubtitles: false }, fixture, defaultSettings.voice, 0, false)).not.toThrow();
+  });
+  it('keeps subtitle burning disabled throughout generation and export, while still creating the SRT', async () => {
+    const { dependencies, reporter, previews } = setup();
+    const input = job('generate');
+    input.snapshot.settings = { ...defaultSettings, burnSubtitles: false };
+    const result = await runPipeline(input, AbortSignal.timeout(5000), reporter, dependencies);
+    expect(previews.filter(preview => preview.renderPlan).every(preview => preview.renderPlan?.burnSubtitles === false)).toBe(true);
+    expect(dependencies.renderVideo).toHaveBeenCalledWith(expect.objectContaining({ burnSubtitles: false, layoutVersion: 'full-frame' }), [], expect.any(String), expect.any(AbortSignal), expect.any(Function));
+    expect(result.subtitleUrl).toBeTruthy();
+    const exported = job('export');
+    exported.snapshot.settings = input.snapshot.settings;
+    exported.snapshot.renderPlan = result.renderPlan;
+    exported.snapshot.previewRevision = 1;
+    const validateCustom = vi.fn(async () => []);
+    await runPipeline(exported, AbortSignal.timeout(5000), reporter, { ...dependencies, validateCustomLesson: validateCustom });
+    expect(validateCustom).toHaveBeenCalledWith(fixture, 'full-frame');
+    const legacy = { ...result.renderPlan! }; delete legacy.layoutVersion; delete legacy.burnSubtitles;
+    exported.snapshot.settings = defaultSettings; exported.snapshot.renderPlan = legacy;
+    await runPipeline(exported, AbortSignal.timeout(5000), reporter, { ...dependencies, validateCustomLesson: validateCustom });
+    expect(validateCustom).toHaveBeenLastCalledWith(fixture, 'legacy');
   });
   it('cancelled speech keeps the first playable preview and skips later audio and rendering', async () => {
     const { dependencies, reporter, previews } = setup();

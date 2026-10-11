@@ -98,7 +98,8 @@ export async function runPipeline(job: JobRecord, signal: AbortSignal, reporter:
   await reporter.progress('validate', 0, 1, '检查视频结构、画面引用与来源覆盖');
   // Existing legacy lessons keep their original source IDs and remain exportable; newly directed lessons enforce every image occurrence.
   const validationSource = snapshot.sourceMode !== 'chapters' && !['compose', 'preview', 'generate', 'regenerate'].includes(job.kind) ? { ...source, imageOccurrences: [] } : source;
-  const validation = [...validateLesson(lesson, validationSource, snapshot.assets, snapshot.settings.mode, snapshot.settings.creationMode), ...await services.validateCustomLesson(lesson)];
+  const layoutVersion = job.kind === 'export' ? snapshot.renderPlan?.layoutVersion ?? 'legacy' : 'full-frame';
+  const validation = [...validateLesson(lesson, validationSource, snapshot.assets, snapshot.settings.mode, snapshot.settings.creationMode, layoutVersion), ...await services.validateCustomLesson(lesson, layoutVersion)];
   const errors = validation.filter(d => d.severity === 'error');
   if (errors.length) throw new Error(`视频无法生成：${errors.slice(0, 8).map(d => d.message).join('；')}`);
   if (['speech', 'rebuild', 'export'].includes(job.kind)) for (const diagnostic of validation) await reporter.diagnostic(diagnostic);
@@ -110,7 +111,7 @@ export async function runPipeline(job: JobRecord, signal: AbortSignal, reporter:
   let plan = job.kind === 'export' ? snapshot.renderPlan : null;
   if (job.kind === 'export') {
     if (!plan || snapshot.previewRevision !== snapshot.revision) throw new Error('导出快照没有当前版本的已对齐预览，请先生成配音');
-    validateExportPlan(plan, lesson, snapshot.settings.voice, snapshot.settings.rate);
+    validateExportPlan(plan, lesson, snapshot.settings.voice, snapshot.settings.rate, snapshot.settings.burnSubtitles ?? true);
   }
   if (!plan) {
     const utterances = lesson.scenes.flatMap(scene => scene.narration.map(utterance => ({ scene, utterance })));
@@ -168,9 +169,10 @@ export async function runPipeline(job: JobRecord, signal: AbortSignal, reporter:
   } finally { await Promise.all([rm(videoPath, { force: true }), rm(subtitlePath, { force: true })]); }
 }
 
-export function validateExportPlan(plan: RenderPlan, lesson: Lesson, voice: string, rate: number): void {
+export function validateExportPlan(plan: RenderPlan, lesson: Lesson, voice: string, rate: number, burnSubtitles = true): void {
   if (plan.previewMode === 'draft' || plan.previewMode === 'partial') throw new Error('分镜或部分配音预览不能导出，请先完成全部配音');
   if (plan.voice !== undefined && plan.voice !== voice || plan.rate !== undefined && plan.rate !== rate) throw new Error('配音设置已变化，请重新生成配音后导出');
+  if ((plan.burnSubtitles ?? true) !== burnSubtitles) throw new Error('字幕设置与所选视频版本不一致，请重新生成视频预览后导出');
   if (JSON.stringify(plan.scenes.map(s => s.scene)) !== JSON.stringify(lesson.scenes)) throw new Error('配音预览不属于当前分镜，请重新生成配音');
   if (plan.scenes.some(scene => scene.utterances.length !== scene.scene.narration.length || scene.utterances.some(clip => clip.estimated || !clip.url || !Number.isFinite(clip.durationSeconds) || clip.durationSeconds <= 0))) throw new Error('预览仍有未完成配音，不能导出');
   if (plan.narrationAudio && (!plan.narrationAudio.url || !Number.isFinite(plan.narrationAudio.durationSeconds) || Math.abs(plan.narrationAudio.durationSeconds - plan.totalFrames / plan.fps) > 0.05)) throw new Error('连续音轨与视频时间轴不一致，请重新生成配音');

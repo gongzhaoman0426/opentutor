@@ -19,6 +19,8 @@ export const zh = {
   sageColor: '草木绿', inkColor: '墨色', generationMode: '生成方式', stable: '稳定模式', creative: '创作模式',
   stableHint: '使用预设视频组件，画面结构更可控。', creativeHint: 'AI 可编写动态图形组件，表达更自由。',
   audience: '目标观众', audiencePlaceholder: '例如：新用户、团队同事、普通观众', resolution: '视频分辨率', landscape: '{{resolution}} · 横屏',
+  subtitles: '视频字幕', burnSubtitles: '烤入字幕', noBurnSubtitles: '不烤字幕',
+  subtitlesHint: '字幕叠加在画面上，不占用组件空间。关闭后，预览默认隐藏字幕，导出也不烤字幕，配音不受影响。',
   language: '视频语言', languageHint: '用于画面文字与旁白；原始引用图片保留原文。', saved: '{{name}} · 已保存',
   voice: '微软免费配音', free: 'FREE', chooseVoice: '请选择该语言音色', voiceMismatch: '已保存音色与视频语言不一致，请选择对应音色。',
   audition: '试听当前音色', voicePreview: '音色试听', rate: '语速', narrationRate: '配音语速', standard: '标准',
@@ -47,6 +49,8 @@ export const zh = {
     'custom-wave': { title: '动态波形', description: 'AI 代码按帧计算曲线与传播过程' },
     'custom-orbit': { title: '运动示意', description: 'AI 代码计算位置，呈现连续运动与关系' },
     'custom-bars': { title: '动态数据图', description: 'AI 代码绘制图表，并控制数值与入场动画' },
+    'custom-form-study': { title: '形态重组', description: '保持同一组图形的连续性，用错峰、形变与构图转场形成完整段落' },
+    'custom-perspective-study': { title: '空间镜头', description: '通过真实透视计算、分层视差与镜头推进，将注意力收束到主体' },
   },
 };
 
@@ -71,6 +75,8 @@ export const en = {
   sageColor: 'Sage green', inkColor: 'Ink', generationMode: 'Generation mode', stable: 'Stable mode', creative: 'Creative mode',
   stableHint: 'Use preset video components for consistent layouts.', creativeHint: 'Let AI write custom motion graphics for more freedom.',
   audience: 'Target audience', audiencePlaceholder: 'For example: new users, teammates, or a general audience', resolution: 'Video resolution', landscape: '{{resolution}} · Landscape',
+  subtitles: 'Video subtitles', burnSubtitles: 'Burn in subtitles', noBurnSubtitles: 'No burned-in subtitles',
+  subtitlesHint: 'Subtitles overlay the visuals without taking up component space. With this off, previews hide them by default and exports omit them. Narration is unchanged.',
   language: 'Video language', languageHint: 'Used for on-screen text and narration. Referenced images keep their original text.', saved: '{{name}} · Saved',
   voice: 'Free Microsoft voice', free: 'FREE', chooseVoice: 'Choose a voice for this language', voiceMismatch: 'The saved voice does not match the video language. Choose a matching voice.',
   audition: 'Preview selected voice', voicePreview: 'Voice preview', rate: 'Speaking rate', narrationRate: 'Narration speed', standard: 'Normal',
@@ -99,5 +105,7 @@ export const en = {
     'custom-wave': { title: 'Animated waveform', description: 'AI code calculates curves and propagation frame by frame' },
     'custom-orbit': { title: 'Motion diagram', description: 'AI code calculates positions to show continuous movement and relationships' },
     'custom-bars': { title: 'Animated chart', description: 'AI code draws charts and controls values and entrance animations' },
+    'custom-form-study': { title: 'Form transformation', description: 'Follow the same shapes through staggered motion, morphing, and a composed final arrangement' },
+    'custom-perspective-study': { title: 'Spatial camera', description: 'Use perspective, layered parallax, and a camera push to bring a subject into focus' },
   },
 };

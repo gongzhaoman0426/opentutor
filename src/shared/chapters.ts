@@ -95,8 +95,8 @@ export function getChapterSourceKey(project: ChapterSource, chapter: Chapter): s
   })).map(asset => [asset.id, asset.name, asset.mime, asset.hash, asset.width ?? null, asset.height ?? null]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   // Preserve the pre-intent fingerprint for existing videos: append only active
   // new choices, keeping the order of every legacy settings field unchanged.
-  const { videoIntent, creativeBrief, ...legacySettings } = SettingsSchema.parse(chapter.settings ?? project.settings);
-  const settings = { ...legacySettings, ...(videoIntent !== 'auto' ? { videoIntent } : {}), ...(creativeBrief !== '' ? { creativeBrief } : {}) };
+  const { videoIntent, creativeBrief, burnSubtitles, ...legacySettings } = SettingsSchema.parse(chapter.settings ?? project.settings);
+  const settings = { ...legacySettings, ...(videoIntent !== 'auto' ? { videoIntent } : {}), ...(creativeBrief !== '' ? { creativeBrief } : {}), ...(!burnSubtitles ? { burnSubtitles } : {}) };
   return bytesToHex(sha256(utf8ToBytes(JSON.stringify({ version: 'chapter-video-v1', id: chapter.id, title: chapter.title, markdown: chapter.markdown, settings, references, assets: referenced }))));
 }
 export function isChapterVideoCurrent(project: Pick<Project, 'chapterVideos' | 'chapters' | 'markdown' | 'settings' | 'assets'>, chapterId: string): boolean {
@@ -106,6 +106,7 @@ export function isChapterVideoCurrent(project: Pick<Project, 'chapterVideos' | '
   try {
     const settings = SettingsSchema.parse(chapter.settings ?? project.settings);
     const plan = video.renderPlan;
+    if ((plan.burnSubtitles ?? true) !== settings.burnSubtitles) return false;
     const palette = (value: typeof video.lesson.palette) => value ? [value.background, value.surface, value.text, value.muted, value.accent].map(color => color.toLowerCase()) : null;
     if (plan.theme !== settings.theme || plan.width !== (settings.resolution === '1080p' ? 1920 : 1280) || plan.height !== (settings.resolution === '1080p' ? 1080 : 720) || plan.voice !== settings.voice || plan.rate !== settings.rate || JSON.stringify(palette(plan.palette)) !== JSON.stringify(palette(video.lesson.palette))) return false;
     return JSON.stringify(plan.scenes.map(scene => SceneSchema.parse(scene.scene))) === JSON.stringify(video.lesson.scenes.map(scene => SceneSchema.parse(scene)));

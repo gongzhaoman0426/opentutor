@@ -59,6 +59,32 @@ afterAll(async () => {
 });
 describe('immutable chapter video history', () => {
   const chapters = [{ id: 'a', title: 'A', markdown: 'A 原稿' }, { id: 'b', title: 'B', markdown: 'B 原稿' }];
+  it('freezes subtitle choices per video and rejects mismatched publication without invalidating legacy history', async () => {
+    let p = await store.createProject({ title: '字幕版本', chapters });
+    const original = await generatedChapter(p); p = original.project;
+    expect(p.chapterVideos?.a.current).toBe(true);
+    p = await store.updateProject(p.id, { ...patch(p), chapters: p.chapters!.map(ch => ch.id === 'a' ? { ...ch, settings: SettingsSchema.parse({ ...p.settings, burnSubtitles: false }) } : ch) });
+    expect(p.chapterVideos?.a.current).toBe(false);
+    const job = await store.submitJob(p.id, { kind: 'preview', chapterId: 'a', expectedRevision: p.revision });
+    const owner = await store.claimJob(job.id); const audio = await registeredAudio(p);
+    const result = chapterResult(p, job, audio.url);
+    await expect(store.completeJob(job.id, result, owner!.leaseToken)).rejects.toThrow('真实配音');
+    result.renderPlan = { ...result.renderPlan, layoutVersion: 'full-frame', burnSubtitles: false };
+    await store.completeJob(job.id, result, owner!.leaseToken);
+    p = await store.getProject(p.id);
+    expect(p.chapterVideos?.a.current).toBe(true);
+    const clean = await store.getVideoVersion(p.id, job.id);
+    expect(clean.settings.burnSubtitles).toBe(false);
+    expect(clean.renderPlan).toMatchObject({ burnSubtitles: false, layoutVersion: 'full-frame' });
+    const old = await store.getVideoVersion(p.id, original.job.id);
+    expect(old.settings.burnSubtitles).toBe(true);
+    expect(old.renderPlan.layoutVersion).toBeUndefined();
+    expect(old.renderPlan.burnSubtitles).toBeUndefined();
+    const historical = await store.submitVideoVersionExport(p.id, original.job.id);
+    expect(historical.snapshot.settings.burnSubtitles).toBe(true);
+    expect(historical.snapshot.renderPlan?.layoutVersion).toBeUndefined();
+    await store.deleteProject(p.id);
+  });
   it('numbers actual completed videos per chapter without counting saves, failures, partials, IR or exports', async () => {
     let p = await store.createProject({ title: '视频版本计数', chapters });
     const first = await generatedChapter(p); p = first.project;

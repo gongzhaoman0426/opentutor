@@ -2,15 +2,17 @@ import type { Diagnostic, Lesson, RenderUtterance } from '../shared/schema';
 import { loadCustomRuntime, renderCustomFrame } from '../video/custom-runtime';
 import { resolvePalette } from '../shared/visual-style';
 import { getMotionCueStates, resolveMotionCues } from '../shared/motion';
+import { getFullFrameLayout } from '../shared/video-layout';
 
-export async function validateCustomLesson(lesson: Lesson): Promise<Diagnostic[]> {
+export async function validateCustomLesson(lesson: Lesson, layoutVersion: 'legacy' | 'full-frame' = 'full-frame'): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
   const objects = lesson.scenes.flatMap(scene => scene.objects.filter(object => object.type === 'custom').map(object => ({ scene, object })));
   if (!objects.length) return diagnostics;
   const runtime = await loadCustomRuntime();
   for (const { scene, object } of objects) {
     try {
-      const geometry = { fps: 30, width: scene.layout === 'compare' ? 520 : 1104, height: 286, theme: resolvePalette('sage', lesson.palette) };
+      const viewport = layoutVersion === 'legacy' ? { width: scene.layout === 'compare' ? 520 : 1104, height: 286 } : getFullFrameLayout(scene).objects[object.id];
+      const geometry = { fps: 30, width: viewport.width, height: viewport.height, theme: resolvePalette('sage', lesson.palette) };
       if (object.motion) {
         // Exercise every declared transition, not only five arbitrary fractions
         // of a scene. Real start times replace these fixtures after synthesis.

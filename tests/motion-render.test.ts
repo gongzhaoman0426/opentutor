@@ -68,6 +68,14 @@ function renderAt(plan: RenderPlan, sceneFrame: number) {
 }
 
 describe('narration clocks in the shared preview/export video component', () => {
+  it('passes each full-frame slot to custom SVGs while preserving original geometry for saved plans', () => {
+    const original = fixture();
+    expect(renderAt(original, 64).html.match(/viewBox="0 0 520 286"/g)).toHaveLength(2);
+    const full = fixture(); full.layoutVersion = 'full-frame';
+    expect(renderAt(full, 64).html.match(/viewBox="0 0 632 720"/g)).toHaveLength(2);
+    full.scenes[0].scene.objects = [full.scenes[0].scene.objects[0]];
+    expect(renderAt(full, 64).html).toContain('viewBox="0 0 1280 720"');
+  });
   it('uses scene-local speech cues for new SVGs and object-local time for existing SVGs', () => {
     const { modern, legacy } = renderAt(fixture(), 64);
     expect(modern.apply).toEqual({ started: true, active: true, completed: false, frame: 10, durationFrames: 36, progress: 10 / 36 });

@@ -1,4 +1,5 @@
 export const zh = {
+  burnedSubtitles: '烤入字幕', noBurnedSubtitles: '不烤字幕',
   sourceDraft: '文稿草稿预览', retained: '保留版本预览', edited: '编辑草稿预览', partial: '配音未完成 · 增量预览', scenes: '场景预览', video: '视频预览', sceneCount_one: '{{count}} 个场景', sceneCount_other: '{{count}} 个场景',
   sourceDescription: '原稿分镜，尚未经过 AI 分镜编排。', retainedDescription: '这是保留的旧版预览，本章文稿或设置已更新。', editedDescription: '内容修改即时可见；需要更新的配音使用无声预览。', partialDescription: '真实配音 {{ready}} / {{total}} 段，其余段落按预计时长无声播放。', alignedDescription: '配音、字幕与画面已同步。',
   restart: '回到视频开始', play: '播放预览', pause: '暂停预览', unmute: '开启预览声音', mute: '静音预览', estimatePrefix: '预计 ', subtitles: '字幕', timeline: '时间轴', fullscreen: '全屏预览', position: '预览播放位置', sceneTimeline: '场景时间轴', estimatedTiming: '包含预计时长', aligned: '已对齐', estimateSuffix: '（预计）',
@@ -6,6 +7,7 @@ export const zh = {
   versions: '视频版本', latestGenerating: '最新 / 生成中', latestPartial: '最新 / 未完成预览', latestVersion: '最新 · v{{version}}', latestPreview: '最新预览', loadingVersions: '正在读取视频版本', generatedAt: '生成于 {{time}}', versionSettings: '所选版本设置', creative: '创作模式', stable: '稳定模式', incompleteNote: '未完成的预览不会计入视频版本，可选择已完成版本下载。', loadingChapterVersions: '读取本章成功生成的视频…', chooseVersionNote: '选择版本预览，文稿与生成设置保持不变。', emptyVersions: '成功生成的视频会保存在这里。',
 };
 export const en: Record<keyof typeof zh, string> = {
+  burnedSubtitles: 'Burned-in subtitles', noBurnedSubtitles: 'No burned-in subtitles',
   sourceDraft: 'Source draft preview', retained: 'Saved version preview', edited: 'Edited draft preview', partial: 'Narration in progress · Partial preview', scenes: 'Scene preview', video: 'Video preview', sceneCount_one: '{{count}} scene', sceneCount_other: '{{count}} scenes',
   sourceDescription: 'Source storyboard; AI composition has not run yet.', retainedDescription: 'This is a saved preview. The chapter draft or settings have changed.', editedDescription: 'Edits appear immediately. Narration awaiting an update plays silently.', partialDescription: '{{ready}} / {{total}} narration segments ready. Other segments play silently with estimated timing.', alignedDescription: 'Narration, subtitles, and visuals are synchronized.',
   restart: 'Back to start', play: 'Play preview', pause: 'Pause preview', unmute: 'Unmute preview', mute: 'Mute preview', estimatePrefix: 'Est. ', subtitles: 'Subtitles', timeline: 'Timeline', fullscreen: 'Fullscreen preview', position: 'Preview position', sceneTimeline: 'Scene timeline', estimatedTiming: 'Includes estimated timing', aligned: 'Aligned', estimateSuffix: ' (estimated)',

@@ -138,12 +138,16 @@ async function openVideo(page: Page) {
 
 test('numbers two videos v1/v2 despite document revision 11 and switches their own picture, voice, settings, and download', async ({ page, downloadOrigin }) => {
   const data = await historyFixture(page, downloadOrigin, { exportedOld: true });
+  data.a2.settings.burnSubtitles = false;
+  data.a2.renderPlan.burnSubtitles = false;
+  data.getProject().chapterVideos!.a.renderPlan!.burnSubtitles = false;
   await openVideo(page);
   const select = page.getByLabel('视频版本', { exact: true });
   await expect(select.locator(`option[value="${a1Id}"]`)).toContainText('v1');
   await expect(select.locator(`option[value="${a2Id}"]`)).toContainText('v2');
   await expect(select).not.toContainText('v11');
   await expect(page.getByText('A-v2：当前绿色画面', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('所选版本设置', { exact: true })).toContainText('不烤字幕');
   await page.getByRole('button', { name: '播放预览', exact: true }).click();
   await expect(page.getByRole('button', { name: '暂停预览', exact: true })).toBeVisible();
   await select.selectOption(a1Id);
@@ -152,6 +156,7 @@ test('numbers two videos v1/v2 despite document revision 11 and switches their o
   await expect(page.getByRole('button', { name: '播放预览', exact: true })).toBeVisible();
   await expect(page.getByLabel('所选版本设置', { exact: true })).toContainText('1080p');
   await expect(page.getByLabel('所选版本设置', { exact: true })).toContainText('Guy');
+  await expect(page.getByLabel('所选版本设置', { exact: true })).toHaveText(/ · 烤入字幕$/);
   await page.getByRole('button', { name: '播放预览', exact: true }).click();
   await expect.poll(() => page.locator('audio').evaluateAll(nodes => nodes.map(node => node as HTMLAudioElement).filter(node => !node.paused).map(node => node.currentSrc || node.src))).toContain(new URL(`/api/artifacts/history-audio-${a1Id}`, page.url()).href);
   const downloaded = page.waitForEvent('download');

@@ -100,6 +100,7 @@ async function assertAlignedPlan(c: PoolClient, projectId: string, plan: RenderP
   assertCustomLesson(lesson, settings);
   const invalid = () => { throw new AppError(422, 'UNALIGNED_PREVIEW', '请先完成当前项目的真实配音与时间轴，再导出视频'); };
   if (!plan || (plan.previewMode !== undefined && plan.previewMode !== 'aligned') || !Number.isInteger(plan.fps) || plan.fps < 1 || !Number.isInteger(plan.totalFrames) || plan.totalFrames < 1 || !Array.isArray(plan.scenes) || plan.scenes.length !== lesson.scenes.length || (plan.voice !== undefined && plan.voice !== settings.voice) || (plan.rate !== undefined && plan.rate !== settings.rate)) invalid();
+  if ((plan!.burnSubtitles ?? true) !== (settings.burnSubtitles ?? true) || (plan!.layoutVersion !== undefined && plan!.layoutVersion !== 'full-frame')) invalid();
   const palette = (value: Lesson['palette']) => value ? [value.background, value.surface, value.text, value.muted, value.accent].map(color => color.toLowerCase()) : null;
   if (plan!.theme !== settings.theme || plan!.width !== (settings.resolution === '1080p' ? 1920 : 1280) || plan!.height !== (settings.resolution === '1080p' ? 1080 : 720) || JSON.stringify(palette(plan!.palette)) !== JSON.stringify(palette(lesson.palette)) || (strictParameters && (plan!.voice !== settings.voice || plan!.rate !== settings.rate))) invalid();
   const audioIds = new Set<string>();

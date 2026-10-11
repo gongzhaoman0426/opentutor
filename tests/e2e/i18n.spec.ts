@@ -190,6 +190,7 @@ test('keeps draft, selected historical video, and continuous playback when switc
   const readsBefore = data.reads.length;
   await page.getByLabel('界面语言', { exact: true }).selectOption('en');
   await expect(page.getByLabel('Video version', { exact: true })).toHaveValue(oldId);
+  await expect(page.getByLabel('Selected version settings', { exact: true })).toContainText('Burned-in subtitles');
   await expect(page.getByRole('button', { name: 'Pause preview', exact: true })).toBeVisible();
   await expect(page.getByLabel('Chapter Markdown')).toHaveValue(pendingDraft);
   await expect(page.getByText('第 1 版：这段画面内容保持原文。', { exact: true })).toBeVisible();
@@ -220,6 +221,8 @@ test('localizes settings and component library while keeping video language and 
   await expect(page.locator('#chapter-language')).toHaveValue('ja-JP');
   await expect(page.locator('#chapter-language option:checked')).toContainText('日语');
   await expect(page.locator('#chapter-voice option:checked')).toHaveText('Keita · 男声');
+  await expect(page.getByLabel('视频字幕', { exact: true })).toHaveValue('true');
+  await expect(page.locator('#chapter-subtitles option')).toHaveText(['烤入字幕', '不烤字幕']);
   await page.getByRole('button', { name: '关闭生成设置', exact: true }).click();
   await page.getByLabel('界面语言', { exact: true }).selectOption('en');
   await page.getByRole('button', { name: 'Chapter generation settings', exact: true }).click();
@@ -229,12 +232,16 @@ test('localizes settings and component library while keeping video language and 
   await expect(page.locator('#chapter-voice')).toHaveValue('ja-JP-KeitaNeural');
   await expect(page.locator('#chapter-voice option:checked')).toHaveText('Keita · Male');
   await expect(page.locator('#chapter-voice option')).toHaveText(['Nanami · Female', 'Keita · Male']);
+  await expect(page.getByLabel('Video subtitles', { exact: true })).toHaveValue('true');
+  await expect(page.locator('#chapter-subtitles option')).toHaveText(['Burn in subtitles', 'No burned-in subtitles']);
   await expect(page.locator('#chapter-language option[value="zh-CN"]')).toHaveText('Chinese (Mandarin)');
   await expect(page.getByRole('button', { name: 'Save settings', exact: true })).toBeVisible();
   await screenshot(page, 'settings-en');
   await page.getByRole('tab', { name: 'Component library', exact: true }).click();
   await expect(page.getByText('Find the right visuals for your content.', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Preview component:/ })).toHaveCount(12);
+  await expect(page.getByRole('button', { name: /^Preview component:/ })).toHaveCount(14);
+  await expect(page.getByRole('button', { name: 'Preview component: Form transformation', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Preview component: Spatial camera', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Preview component: Nodes and relationships', exact: true }).click();
   await expect(page.locator('.component-gallery-caption')).toContainText('Use nodes and arrows to show workflows, conceptual relationships, and name bindings');
   await expect(page.getByRole('button', { name: 'Play preview', exact: true })).toBeVisible();

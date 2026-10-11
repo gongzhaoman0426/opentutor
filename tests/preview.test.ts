@@ -7,6 +7,16 @@ const lesson: Lesson = { schemaVersion: '0.1', title: '步骤', objectives: ['�
 const speech: SpeechResult = { url: '/api/artifacts/real-test-clip', hash: 'test', cacheHit: false, durationSeconds: 2.25, boundaries: [{ kind: 'sentence', text: '先做第一步。', startSeconds: 0.1, endSeconds: 2.1 }] };
 
 describe('always-available interactive preview', () => {
+  it('uses the same subtitle choice in draft, partial and aligned previews', () => {
+    const settings = { ...defaultSettings, burnSubtitles: false };
+    const complete = new Map([['scene:u1', speech], ['scene:u2', { ...speech, hash: 'test2' }]]);
+    for (const audio of [new Map(), new Map([['scene:u1', speech]]), complete]) {
+      expect(buildPreviewPlan(lesson, settings, 1, null, audio)).toMatchObject({ layoutVersion: 'full-frame', burnSubtitles: false });
+    }
+    const oldPlan = buildRenderPlan(lesson, defaultSettings, complete, 1);
+    expect(buildPreviewPlan(lesson, settings, 2, oldPlan)).toMatchObject({ previewMode: 'aligned', burnSubtitles: false });
+    expect(oldPlan.burnSubtitles).toBe(true);
+  });
   it('provides a readable storyboard for empty and arbitrary Markdown without an AI call', () => {
     expect(buildDraftLesson('', '新课程').scenes[0].objects[0].content).toContain('导入 Markdown');
     const draft = buildDraftLesson('# 标题\n\n这是正文。\n\n```python\nprint(1)\n```\n\n$$\na^2 + b^2 = c^2\n$$', '新课程');

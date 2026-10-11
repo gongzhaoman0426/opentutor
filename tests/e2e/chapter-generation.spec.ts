@@ -121,6 +121,8 @@ test('persists per-chapter configuration, auditions the selected voice, and subm
   await modal.getByLabel('创作要求', { exact: true }).fill('面向首次使用的新用户，先呈现问题，再展示操作，不添加原稿没有的功能。');
   await modal.getByLabel('目标观众', { exact: true }).fill('第一次使用产品的用户');
   await modal.getByLabel('视频分辨率').selectOption('1080p');
+  await expect(modal.getByLabel('视频字幕', { exact: true })).toHaveValue('true');
+  await modal.getByLabel('视频字幕', { exact: true }).selectOption('false');
   await modal.getByLabel('视频语言', { exact: true }).selectOption('en-US');
   await modal.getByLabel('微软免费配音').selectOption('en-US-GuyNeural');
   await modal.getByRole('button', { name: '试听当前音色' }).click();
@@ -134,13 +136,14 @@ test('persists per-chapter configuration, auditions the selected voice, and subm
   await page.screenshot({ path: '.data/verification/generation-settings-fixture.png' });
   await modal.getByRole('button', { name: '保存设置', exact: true }).click();
   await expect(modal).toHaveCount(0);
-  expect(data.getProject().chapters![0].settings).toMatchObject({ resolution: '1080p', language: 'en-US', voice: 'en-US-GuyNeural', theme: 'ocean', model: 'catalog-model-creative', creationMode: 'creative', stylePrompt: '蓝白配色、留白充足，用橙色强调关键元素。', videoIntent: 'product', creativeBrief: '面向首次使用的新用户，先呈现问题，再展示操作，不添加原稿没有的功能。', audience: '第一次使用产品的用户' });
+  expect(data.getProject().chapters![0].settings).toMatchObject({ resolution: '1080p', burnSubtitles: false, language: 'en-US', voice: 'en-US-GuyNeural', theme: 'ocean', model: 'catalog-model-creative', creationMode: 'creative', stylePrompt: '蓝白配色、留白充足，用橙色强调关键元素。', videoIntent: 'product', creativeBrief: '面向首次使用的新用户，先呈现问题，再展示操作，不添加原稿没有的功能。', audience: '第一次使用产品的用户' });
   expect(data.getProject().settings).toEqual(data.getProject().chapters![0].settings);
   expect(data.getProject().chapters![1].settings).toEqual(defaultSettings);
   expect(isChapterVideoCurrent(data.getProject(), 'chapter-b')).toBe(true);
   await page.reload();
   await page.getByRole('button', { name: '更新视频', exact: true }).click();
   await expect(page.getByLabel('视频分辨率')).toHaveValue('1080p');
+  await expect(page.getByLabel('视频字幕', { exact: true })).toHaveValue('false');
   await expect(page.getByLabel('视频语言', { exact: true })).toHaveValue('en-US');
   await expect(page.getByLabel('微软免费配音')).toHaveValue('en-US-GuyNeural');
   await expect(page.getByLabel('风格描述')).toHaveValue('蓝白配色、留白充足，用橙色强调关键元素。');
@@ -164,6 +167,7 @@ test('remembers saved settings for subsequent chapters and new chapters across r
   const modal = page.getByRole('dialog');
   await expect(modal).toContainText('后续未配置的章节会自动沿用');
   await modal.getByLabel('视频分辨率').selectOption('1080p');
+  await modal.getByLabel('视频字幕', { exact: true }).selectOption('false');
   await modal.getByLabel('视频语言', { exact: true }).selectOption('ja-JP');
   await modal.getByLabel('微软免费配音').selectOption('ja-JP-KeitaNeural');
   await modal.getByLabel('AI 模型').selectOption('catalog-model-creative');
@@ -177,6 +181,7 @@ test('remembers saved settings for subsequent chapters and new chapters across r
   await page.getByRole('navigation', { name: '项目章节' }).getByRole('button', { name: '02 细胞核' }).click();
   await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
   await expect(modal.getByLabel('视频分辨率')).toHaveValue('1080p');
+  await expect(modal.getByLabel('视频字幕', { exact: true })).toHaveValue('false');
   await expect(modal.getByLabel('视频语言', { exact: true })).toHaveValue('ja-JP');
   await expect(modal.getByLabel('微软免费配音')).toHaveValue('ja-JP-KeitaNeural');
   await expect(modal.getByLabel('AI 模型')).toHaveValue('catalog-model-creative');
@@ -191,6 +196,7 @@ test('remembers saved settings for subsequent chapters and new chapters across r
   await page.getByRole('button', { name: '添加章节', exact: true }).click();
   await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
   await expect(modal.getByLabel('视频分辨率')).toHaveValue('1080p');
+  await expect(modal.getByLabel('视频字幕', { exact: true })).toHaveValue('false');
   await expect(modal.getByLabel('视频语言', { exact: true })).toHaveValue('ja-JP');
   await expect(modal.getByLabel('微软免费配音')).toHaveValue('ja-JP-KeitaNeural');
   await expect(modal.getByLabel('风格描述')).toHaveValue('蓝白配色，强调标题');
@@ -198,6 +204,7 @@ test('remembers saved settings for subsequent chapters and new chapters across r
   await page.getByRole('navigation', { name: '项目章节' }).getByRole('button', { name: '03 独立参数' }).click();
   await page.getByRole('button', { name: '当前章节生成设置', exact: true }).click();
   await expect(modal.getByLabel('视频分辨率')).toHaveValue(defaultSettings.resolution);
+  await expect(modal.getByLabel('视频字幕', { exact: true })).toHaveValue('true');
   await expect(modal.getByLabel('视频语言', { exact: true })).toHaveValue(defaultSettings.language);
   await expect(modal.getByLabel('微软免费配音')).toHaveValue(defaultSettings.voice);
   await expect(modal.getByLabel('配音语速')).toHaveValue('25');
@@ -355,7 +362,7 @@ test('previews all preset components and actual animated JavaScript SVG componen
   await page.goto(`/projects/${data.id}`);
   await page.getByRole('button', { name: '查看组件库', exact: true }).click();
   const modal = page.getByRole('dialog');
-  await expect(modal.getByRole('button', { name: /^预览组件：/ })).toHaveCount(12);
+  await expect(modal.getByRole('button', { name: /^预览组件：/ })).toHaveCount(14);
   await modal.getByRole('button', { name: '预览组件：图片与标注', exact: true }).click();
   await expect(modal.locator('.component-gallery-featured img')).toBeVisible();
   await modal.getByRole('button', { name: '预览组件：节点与关系图', exact: true }).click();
@@ -371,6 +378,14 @@ test('previews all preset components and actual animated JavaScript SVG componen
   expect(first.startsWith('data:') ? decodeURIComponent(first) : first).toContain('<polyline');
   await modal.locator('.component-gallery-player').getByRole('button', { name: '播放预览' }).click();
   await expect.poll(content).not.toBe(first);
+  for (const name of ['形态重组', '空间镜头']) {
+    await modal.getByRole('button', { name: `预览组件：${name}`, exact: true }).click();
+    await expect(svg).toBeVisible();
+    const before = await content();
+    expect(before.startsWith('data:') ? decodeURIComponent(before) : before).toContain('<polygon');
+    await modal.locator('.component-gallery-player').getByRole('button', { name: '播放预览' }).click();
+    await expect.poll(content).not.toBe(before);
+  }
   await modal.locator('.component-gallery-intro').scrollIntoViewIfNeeded();
   await mkdir('.data/verification', { recursive: true });
   await page.screenshot({ path: '.data/verification/component-gallery-fixture.png' });

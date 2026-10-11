@@ -6,6 +6,7 @@ import type { RenderProgress } from './render-progress';
 import { DIAGRAM_HEIGHT, DIAGRAM_LANGUAGE, validateDiagram } from './diagram';
 import { MotionSchema } from './motion';
 import { VOICE_LOCALE_PATTERN, VOICE_NAME_PATTERN } from './voices';
+import { getFullFrameLayout, isVisualObject } from './video-layout';
 
 export const PaletteSchema = z.object({ background: z.string().regex(/^#[a-fA-F0-9]{6}$/), surface: z.string().regex(/^#[a-fA-F0-9]{6}$/), text: z.string().regex(/^#[a-fA-F0-9]{6}$/), muted: z.string().regex(/^#[a-fA-F0-9]{6}$/), accent: z.string().regex(/^#[a-fA-F0-9]{6}$/) }).strict();
 export type Palette = z.infer<typeof PaletteSchema>;
@@ -18,6 +19,7 @@ export const SettingsSchema = z.object({
   rate: z.number().int().min(-50).max(100).default(0),
   theme: z.enum(['sage', 'ink', 'ocean', 'sunset']).default('sage'),
   resolution: z.enum(['720p', '1080p']).default('720p'),
+  burnSubtitles: z.boolean().default(true),
   model: z.string().max(120).regex(/^[A-Za-z0-9_.:/-]*$/).default(''),
   creationMode: z.enum(['stable', 'creative']).default('stable'),
   stylePrompt: z.string().max(2000).default(''),
@@ -70,7 +72,7 @@ export interface SpeechResult { url: string; durationSeconds: number; boundaries
 export interface RenderUtterance extends SpeechResult { utteranceId: string; startFrame: number; durationFrames: number; estimated?: boolean }
 export interface RenderScene { scene: Scene; startFrame: number; durationFrames: number; utterances: RenderUtterance[] }
 export interface NarrationAudio { url: string; durationSeconds: number }
-export interface RenderPlan { schemaVersion: '0.1'; revision: number; title: string; fps: number; width: number; height: number; theme: GenerationSettings['theme']; totalFrames: number; scenes: RenderScene[]; previewMode?: 'draft' | 'partial' | 'aligned'; voice?: string; rate?: number; narrationAudio?: NarrationAudio; palette?: Palette }
+export interface RenderPlan { schemaVersion: '0.1'; revision: number; title: string; fps: number; width: number; height: number; theme: GenerationSettings['theme']; totalFrames: number; scenes: RenderScene[]; previewMode?: 'draft' | 'partial' | 'aligned'; voice?: string; rate?: number; narrationAudio?: NarrationAudio; palette?: Palette; layoutVersion?: 'full-frame'; burnSubtitles?: boolean }
 export type JobStatus = 'queued' | 'running' | 'cancelling' | 'cancelled' | 'succeeded' | 'failed';
 export type JobKind = 'preview' | 'compose' | 'speech' | 'generate' | 'rebuild' | 'export' | 'regenerate';
 export interface JobPreview { lesson: Lesson; renderPlan: RenderPlan | null; updatedAt: string }
@@ -87,7 +89,7 @@ export const CreateProjectSchema = z.object({ title: z.string().min(1).max(120),
 export const UpdateProjectSchema = z.object({ expectedRevision: z.number().int().positive(), title: z.string().min(1).max(120), markdown: z.string().max(300000).default(''), chapters: ChaptersSchema.optional(), settings: SettingsSchema, assets: z.array(AssetSchema).max(50), lesson: LessonSchema.nullable() });
 export const SubmitJobSchema = z.object({ kind: z.enum(['preview', 'compose', 'speech', 'generate', 'rebuild', 'export', 'regenerate']), expectedRevision: z.number().int().positive(), chapterId: z.string().min(1).max(80).optional(), sceneId: z.string().optional(), instruction: z.string().max(2000).optional() });
 
-export function validateLesson(lesson: Lesson, source: SourceDocument, assets: Asset[], mode: 'full' | 'summary', creationMode: GenerationSettings['creationMode'] = 'stable'): Diagnostic[] {
+export function validateLesson(lesson: Lesson, source: SourceDocument, assets: Asset[], mode: 'full' | 'summary', creationMode: GenerationSettings['creationMode'] = 'stable', layoutVersion: 'legacy' | 'full-frame' = 'full-frame'): Diagnostic[] {
   const issues: Diagnostic[] = [];
   const blockIds = new Set(source.blocks.map(b => b.id));
   const covered = new Set<string>();
@@ -142,9 +144,20 @@ export function validateLesson(lesson: Lesson, source: SourceDocument, assets: A
         } else issues.push({ code: 'DIAGRAM_FALLBACK', severity: 'warning', sceneId: scene.id, message: '旧版图解按 Markdown 显示；使用 diagram-json 可生成节点与有向连线图' });
       }
     }
+    const units = (text: string) => [...text].reduce((sum, ch) => sum + (/[^\x00-\x7F]/.test(ch) ? 1 : 0.55), 0);
+    if (layoutVersion === 'full-frame') {
+      const slots = getFullFrameLayout(scene).objects;
+      for (const object of scene.objects.filter(object => !isVisualObject(object))) {
+        const slot = slots[object.id];
+        const fontSize = object.type === 'code' ? 22 : 26;
+        const columns = Math.max(1, (slot.width - 48) / fontSize);
+        const lines = object.content.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(units(line) / columns)), 0);
+        const height = object.type === 'formula' ? 96 : 36 + lines * (object.type === 'code' ? 34.1 : 39);
+        if (height > slot.height) issues.push({ code: 'CONTENT_TOO_DENSE', severity: 'error', sceneId: scene.id, message: `对象 ${object.id} 的文字预计需要 ${Math.round(height)}px，高于其画面区域 ${Math.floor(slot.height)}px。请拆成更多场景并保留内容和来源，不能缩小字体或删内容；图片可独立占满一幕。` });
+      }
+    } else {
     const estimatedHeights = scene.objects.map(o => {
       const columns = scene.layout === 'compare' ? 20 : 42;
-      const units = (text: string) => [...text].reduce((sum, ch) => sum + (/[^\x00-\x7F]/.test(ch) ? 1 : 0.55), 0);
       if (o.type === 'image' || o.type === 'custom') return 326;
       if (o.type === 'diagram' && o.language === DIAGRAM_LANGUAGE) return DIAGRAM_HEIGHT + 40;
       if (o.type === 'formula') return 96;
@@ -155,6 +168,7 @@ export function validateLesson(lesson: Lesson, source: SourceDocument, assets: A
       ? estimatedHeights.reduce((sum, height, i) => sum + (i % 2 === 0 ? Math.max(height, estimatedHeights[i + 1] ?? 0) + 16 : 0), 0)
       : estimatedHeights.reduce((sum, height) => sum + height + 16, 0);
     if (estimatedHeight > 360) issues.push({ code: 'CONTENT_TOO_DENSE', severity: 'error', sceneId: scene.id, message: `画面内容预计超过可读高度（${Math.round(estimatedHeight)}px）。请拆成更多场景并保留内容和来源，不能缩小字体或删内容。` });
+    }
     if ([...scene.title].reduce((sum, ch) => sum + (/[^\x00-\x7F]/.test(ch) ? 1 : 0.55), 0) > 48) issues.push({ code: 'TITLE_TOO_LONG', severity: 'error', sceneId: scene.id, message: '标题过长，请缩短画面标题，把必要说明保留在正文或旁白。' });
   }
   for (const occurrence of source.imageOccurrences ?? []) {

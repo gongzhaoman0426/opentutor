@@ -18,7 +18,7 @@ export function buildRenderPlan(lesson: Lesson, settings: GenerationSettings, sp
     globalFrame += durationFrames;
     return result;
   });
-  return { schemaVersion: '0.1', revision, title: lesson.title, fps, width: settings.resolution === '1080p' ? 1920 : 1280, height: settings.resolution === '1080p' ? 1080 : 720, theme: settings.theme, ...(lesson.palette ? { palette: lesson.palette } : {}), totalFrames: globalFrame, scenes, previewMode: 'aligned', voice: settings.voice, rate: settings.rate };
+  return { schemaVersion: '0.1', layoutVersion: 'full-frame', burnSubtitles: settings.burnSubtitles ?? true, revision, title: lesson.title, fps, width: settings.resolution === '1080p' ? 1920 : 1280, height: settings.resolution === '1080p' ? 1080 : 720, theme: settings.theme, ...(lesson.palette ? { palette: lesson.palette } : {}), totalFrames: globalFrame, scenes, previewMode: 'aligned', voice: settings.voice, rate: settings.rate };
 }
 
 export function toSrt(plan: RenderPlan): string {

@@ -47,10 +47,11 @@ describe('preset diagram contract', () => {
     expect(legacyIssues.filter(issue => issue.severity === 'error')).toEqual([]);
     expect(validateLesson(lessonWith([{ ...object, content: '{}' }]), source, [], 'full').some(issue => issue.code === 'INVALID_DIAGRAM')).toBe(true);
   });
-  it('budgets one whole graphic per scene or compare column instead of counting JSON source lines as text', () => {
+  it('fits two diagrams in full-frame slots while retaining the legacy card limit', () => {
     const second = { ...object, id: 'd2' };
     expect(validateLesson(lessonWith([object, second], 'compare'), source, [], 'full').some(issue => issue.severity === 'error')).toBe(false);
-    expect(validateLesson(lessonWith([object, second]), source, [], 'full').some(issue => issue.code === 'CONTENT_TOO_DENSE')).toBe(true);
+    expect(validateLesson(lessonWith([object, second]), source, [], 'full').some(issue => issue.code === 'CONTENT_TOO_DENSE')).toBe(false);
+    expect(validateLesson(lessonWith([object, second]), source, [], 'full', 'stable', 'legacy').some(issue => issue.code === 'CONTENT_TOO_DENSE')).toBe(true);
   });
 });
 

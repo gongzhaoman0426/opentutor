@@ -16,6 +16,16 @@ it('uses actual audio duration with contiguous speech and resolves IDs within sc
 it('never substitutes estimated timing for missing speech', () => {
   expect(() => buildRenderPlan(lesson, defaultSettings, new Map(), 1)).toThrow('缺少有效配音');
 });
+it('freezes subtitle burning in the video plan without removing independent SRT or narration', () => {
+  const speech = new Map([['scene1:u1', audio], ['scene2:u1', audio]]);
+  const withSubtitles = buildRenderPlan(lesson, defaultSettings, speech, 1);
+  const clean = buildRenderPlan(lesson, { ...defaultSettings, burnSubtitles: false }, speech, 1);
+  expect(withSubtitles).toMatchObject({ layoutVersion: 'full-frame', burnSubtitles: true });
+  expect(clean).toMatchObject({ layoutVersion: 'full-frame', burnSubtitles: false });
+  expect(clean.scenes).toEqual(withSubtitles.scenes);
+  expect(toSrt(clean)).toBe(toSrt(withSubtitles));
+  expect(toSrt(clean)).toContain('步骤一');
+});
 it('rewrites the master track for private rendering along with individual speech', () => {
   const plan = buildRenderPlan(lesson, defaultSettings, new Map([['scene1:u1', audio], ['scene2:u1', audio]]), 1);
   plan.narrationAudio = { url: '/api/artifacts/master', durationSeconds: plan.totalFrames / plan.fps };

@@ -1,13 +1,14 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it, vi } from 'vitest';
-import type { RenderPlan } from '../src/shared/schema';
+import type { Asset, RenderPlan, TeachingObject } from '../src/shared/schema';
+import { DOMParser } from '@xmldom/xmldom';
 
 vi.mock('remotion', () => ({
   AbsoluteFill: ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => React.createElement('div', { style }, children),
   Sequence: ({ children, premountFor }: { children: React.ReactNode; premountFor?: number }) => React.createElement('div', { 'data-premount': premountFor }, children),
   Audio: ({ src, pauseWhenBuffering }: { src: string; pauseWhenBuffering?: boolean }) => React.createElement('audio', { src, 'data-buffering': pauseWhenBuffering }),
-  Img: ({ src }: { src: string }) => React.createElement('img', { src }),
+  Img: ({ src, style, alt }: { src: string; style?: React.CSSProperties; alt?: string }) => React.createElement('img', { src, style, alt }),
   useCurrentFrame: () => 0,
   interpolate: () => 0,
 }));
@@ -51,4 +52,92 @@ it('draws structured preset diagrams and keeps legacy Markdown diagrams readable
   expect(html).toContain('<polyline');
   expect(html).not.toContain('&quot;nodes&quot;');
   expect(html).toContain('旧版关系 <strong>依然可读</strong>');
+});
+
+const asset: Asset = { id: '11111111-1111-4111-8111-111111111111', name: 'Transparent screenshot.png', mime: 'image/png', url: '/image.png', hash: 'image', width: 1280, height: 720 };
+function imagePlan(): RenderPlan {
+  const preview = structuredClone(plan);
+  preview.layoutVersion = 'full-frame';
+  preview.scenes = [preview.scenes[0]];
+  preview.scenes[0].scene.objects[0] = { id: 'o0', type: 'image', content: asset.id, language: '' };
+  preview.scenes[0].utterances[0].startFrame = 0;
+  preview.scenes[0].utterances[0].boundaries = [{ kind: 'sentence', text: 'A readable subtitle', startSeconds: 0, endSeconds: 1 }];
+  return preview;
+}
+function elements(html: string, attribute: string) {
+  const document = new DOMParser().parseFromString(`<root>${html}</root>`, 'application/xml');
+  return Array.from(document.getElementsByTagName('*')).filter(element => element.hasAttribute(attribute));
+}
+function renderImage(preview = imagePlan(), image = asset, showSubtitles?: boolean) {
+  return renderToStaticMarkup(React.createElement(LessonVideo, { plan: preview, assets: [image], showSubtitles }));
+}
+
+it('uses the whole video for a single image, with no opaque card or title reducing its area', () => {
+  const html = renderImage();
+  expect(elements(html, 'data-video-object')[0].getAttribute('style')).toBe('position:absolute;left:0;top:0;width:1280px;height:720px');
+  const card = elements(html, 'data-video-card')[0].getAttribute('style');
+  expect(card).toContain('padding:0;border-radius:0');
+  expect(card).not.toMatch(/(?:^|;)(?:background|border|box-shadow|transform):/);
+  expect(elements(html, 'data-image-viewport')[0].getAttribute('style')).toContain('width:1280px;max-width:100%;height:720px');
+  expect(elements(html, 'data-image-crop')[0].getAttribute('style')).toContain('left:0;top:0;width:1280px;height:720px');
+  expect(html).not.toContain('OPEN TUTOR');
+  expect(html).not.toContain('<h1');
+});
+
+it('contains portrait pixels without stretching or cutting them off and scales correctly for 1080p', () => {
+  const preview = imagePlan(); preview.width = 1920; preview.height = 1080;
+  const html = renderImage(preview, { ...asset, width: 800, height: 1200 });
+  expect(elements(html, 'data-video-object')[0].getAttribute('style')).toContain('width:1920px;height:1080px');
+  expect(elements(html, 'data-image-crop')[0].getAttribute('style')).toContain('left:600px;top:0;width:720px;height:1080px');
+});
+
+it('keeps region and highlight coordinates tied to original pixels at full frame size', () => {
+  const preview = imagePlan();
+  preview.scenes[0].scene.objects[0].imagePresentation = { fit: 'contain', caption: 'Detail', region: { x: 0.5, y: 0, width: 0.5, height: 1 }, highlight: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 } };
+  const html = renderImage(preview, { ...asset, width: 800, height: 400 });
+  expect(elements(html, 'data-image-crop')[0].getAttribute('style')).toContain('left:280px;top:0;width:720px;height:720px');
+  expect(elements(html, 'data-image-highlight')[0].getAttribute('style')).toContain('left:0;top:180px;width:360px;height:360px');
+  expect(html).toContain('width:1440px;height:720px;left:-720px');
+  expect(html).toContain('<figcaption style="position:absolute');
+  expect(elements(html, 'data-image-viewport')[0].getAttribute('style')).toContain('height:720px');
+});
+
+it('overlays subtitles without changing image size and supports both stored and explicit subtitle switches', () => {
+  const preview = imagePlan();
+  const enabled = renderImage(preview);
+  const overlay = elements(enabled, 'data-video-subtitles')[0];
+  expect(overlay.getAttribute('data-video-subtitles')).toBe('overlay');
+  expect(overlay.getAttribute('style')).toContain('position:absolute');
+  expect(overlay.getAttribute('style')).toContain('z-index:20');
+  expect(enabled).toContain('A readable subtitle');
+  preview.burnSubtitles = false;
+  const disabled = renderImage(preview);
+  expect(elements(disabled, 'data-video-subtitles')).toHaveLength(0);
+  expect(elements(disabled, 'data-image-viewport')[0].getAttribute('style')).toBe(elements(enabled, 'data-image-viewport')[0].getAttribute('style'));
+  expect(renderImage(preview, asset, true)).toContain('A readable subtitle');
+  preview.burnSubtitles = true;
+  expect(renderImage(preview, asset, false)).not.toContain('A readable subtitle');
+});
+
+it('retains the original layout and image sizes for previously saved render plans', () => {
+  const preview = imagePlan(); delete preview.layoutVersion;
+  const html = renderImage(preview);
+  expect(html).toContain('OPEN TUTOR');
+  expect(html).toContain('<h1');
+  expect(elements(html, 'data-video-card')[0].getAttribute('style')).toContain('background:');
+  expect(elements(html, 'data-image-viewport')[0].getAttribute('style')).toContain('width:1104px;max-width:100%;height:290px');
+  expect(elements(html, 'data-video-subtitles')[0].getAttribute('data-video-subtitles')).toBe('footer');
+});
+
+it('keeps supporting text and scene titles beside the image while reserving subtitle reading space', () => {
+  const preview = imagePlan();
+  const text: TeachingObject = { id: 'detail', type: 'text', content: '## What changed\n\nReadable supporting detail.', language: '' };
+  preview.scenes[0].scene.objects.push(text);
+  preview.scenes[0].scene.narration[0].showObjectIds.push(text.id);
+  const html = renderImage(preview);
+  expect(html).toContain('<h1');
+  expect(html).toContain('Readable supporting detail.');
+  const objects = elements(html, 'data-video-object');
+  expect(objects[0].getAttribute('style')).toContain('width:819px;height:720px');
+  expect(objects[1].getAttribute('style')).toContain('top:128px;width:405px;height:496px');
 });

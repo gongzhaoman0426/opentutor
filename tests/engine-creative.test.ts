@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileLesson, type JsonRunner } from '../src/engine/codex';
+import { compileLesson, regenerateScene, generationProfile, type JsonRunner } from '../src/engine/codex';
 import { defaultSettings, type Lesson } from '../src/shared/schema';
 import { parseSource } from '../src/shared/source';
 import { buildRenderPlan } from '../src/video/timeline';
@@ -18,6 +18,30 @@ function lesson(content = drawing, type: 'custom' | 'text' = 'custom'): Lesson {
 }
 
 describe('creative model and actual SVG code generation', () => {
+  it('keeps crafted art direction in initial generation, repair and single-scene regeneration without imposing it on stable mode', async () => {
+    const prompts: string[] = [];
+    await compileLesson(markdown, { ...defaultSettings, creationMode: 'creative' }, [], { runner: async prompt => {
+      prompts.push(prompt);
+      return JSON.stringify(lesson(prompts.length === 1 ? 'throw new Error("repair geometry")' : drawing));
+    } });
+    expect(prompts).toHaveLength(2);
+    await regenerateScene(lesson(), 's1', '让图形重组更连贯', source, { ...defaultSettings, creationMode: 'creative' }, [], { runner: async prompt => { prompts.push(prompt); return JSON.stringify(lesson().scenes[0]); } });
+    for (const prompt of prompts) {
+      expect(prompt).toContain('CRAFTED MOTION DESIGN');
+      expect(prompt).toContain('The author\'s brief takes precedence');
+      expect(prompt).toContain('keep it in one custom component across several narration cues');
+      expect(prompt).toContain('before its own cue.started');
+      expect(prompt).toContain('transition midpoint and settled frame');
+      expect(prompt).toContain('hard 12000-character limit');
+      expect(prompt).not.toContain('usually below 3000 characters');
+    }
+    expect(prompts[1]).toContain('Fix the failing geometry or API usage locally');
+    await compileLesson(markdown, defaultSettings, [], { runner: async prompt => {
+      expect(prompt).not.toContain('CRAFTED MOTION DESIGN');
+      return JSON.stringify(lesson('方向持续改变。', 'text'));
+    } });
+    expect(JSON.parse(await generationProfile('test-model')).version).toBe('director-crafted-motion-v14');
+  });
   it('scopes compiler caches by model/style/mode/course while reusing IR for voice-only changes', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'opentutor-style-cache-'));
     try {
@@ -39,6 +63,50 @@ describe('creative model and actual SVG code generation', () => {
       await compileLesson(markdown, { ...changedModel, creationMode: 'creative' }, [], options); expect(calls).toBe(4);
       await compileLesson(markdown, { ...changedModel, creationMode: 'creative' }, [], { ...options, ownerProjectId: 'course-b' }); expect(calls).toBe(5);
     } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it('plans full-canvas visuals for the selected subtitle policy and separates their cached compositions', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'opentutor-subtitle-cache-'));
+    try {
+      const policies: boolean[] = [];
+      const runner: JsonRunner = async prompt => {
+        const payload = JSON.parse(prompt.split('VIDEO_DATA=')[1]);
+        policies.push(payload.settings.burnSubtitles);
+        expect(prompt).toContain('FULL-FRAME COMPOSITION');
+        expect(prompt).toContain('1280 x 720');
+        expect(prompt).toContain('Preserve the original pixels and transparency');
+        expect(prompt).toContain('fit=contain');
+        expect(prompt).toContain('viewBox 用字符串拼接');
+        expect(prompt).not.toContain('360px content area');
+        expect(prompt).not.toContain('height=286');
+        expect(prompt).not.toContain('固定高度286');
+        if (payload.settings.burnSubtitles) {
+          expect(prompt).toContain('SUBTITLES ENABLED');
+          expect(prompt).toContain('bottom 80 logical pixels');
+        } else {
+          expect(prompt).toContain('SUBTITLES DISABLED');
+          expect(prompt).toContain('Spoken narration and its timing cues are still required');
+          expect(prompt).not.toContain('bottom 80 logical pixels');
+        }
+        return JSON.stringify(lesson('方向持续改变。', 'text'));
+      };
+      const options = { source, runner, ownerProjectId: 'subtitle-course', cacheDirectory: (name = 'cache') => { const target = path.join(directory, name); mkdirSync(target, { recursive: true }); return target; } };
+      const settings = { ...defaultSettings, creationMode: 'creative' as const, burnSubtitles: true };
+      await compileLesson(markdown, settings, [], options);
+      await compileLesson(markdown, { ...settings, burnSubtitles: false }, [], options);
+      await compileLesson(markdown, { ...settings, burnSubtitles: false, voice: 'zh-CN-YunxiNeural', rate: 12 }, [], options);
+      expect(policies).toEqual([true, false]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it('executes custom validation at real full-frame or comparison dimensions and preserves legacy validation', async () => {
+    const atSize = (width: number, height: number) => `if(width!==${width}||height!==${height}) throw new Error("Unexpected component viewport");${drawing}`;
+    expect(await validateCustomLesson(lesson(atSize(1280, 720)))).toEqual([]);
+    const compare = lesson(atSize(632, 720));
+    compare.scenes[0].layout = 'compare';
+    compare.scenes[0].objects.push({ ...compare.scenes[0].objects[0], id: 'o2' });
+    expect(await validateCustomLesson(compare)).toEqual([]);
+    const historical = lesson(atSize(1104, 286));
+    expect(await validateCustomLesson(historical, 'legacy')).toEqual([]);
+    expect(await validateCustomLesson(historical)).toEqual([expect.objectContaining({ code: 'CUSTOM_COMPONENT_INVALID', message: expect.stringContaining('Unexpected component viewport') })]);
   });
   it('repairs executable component errors inside the isolated VM instead of silently returning text', async () => {
     let calls = 0;

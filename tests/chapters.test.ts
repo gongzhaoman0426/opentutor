@@ -72,12 +72,13 @@ describe('editable lecture chapters', () => {
     const savedKey = '4aa50a02207f10ba2761004247c26ba24887de36e7624f6e1a3e96e242f39029';
     expect(getChapterSourceKey(project, chapter)).toBe(savedKey);
     expect(getChapterSourceKey({ ...project, settings: SettingsSchema.parse(oldSettings) }, chapter)).toBe(savedKey);
-    for (const changed of [{ videoIntent: 'product' }, { creativeBrief: '面向客户，呈现产品价值' }]) {
+    for (const changed of [{ videoIntent: 'product' }, { creativeBrief: '面向客户，呈现产品价值' }, { burnSubtitles: false }]) {
       expect(getChapterSourceKey({ ...project, settings: SettingsSchema.parse({ ...oldSettings, ...changed }) }, chapter)).not.toBe(savedKey);
     }
     const ownChapter = { ...chapter, settings: SettingsSchema.parse(oldSettings) };
     expect(getChapterSourceKey({ ...project, settings: SettingsSchema.parse({ ...oldSettings, videoIntent: 'story' }) }, ownChapter)).toBe(savedKey);
     expect(SettingsSchema.parse(oldSettings).audience).toBe('初学者');
     expect(SettingsSchema.parse({}).audience).toBe('普通观众');
+    expect(SettingsSchema.parse(oldSettings).burnSubtitles).toBe(true);
   });
 });
