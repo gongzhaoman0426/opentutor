@@ -35,6 +35,8 @@ export async function initDb() {
         CREATE TABLE IF NOT EXISTS idempotency_keys (project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE, key text NOT NULL, request_hash text NOT NULL, job_id uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, PRIMARY KEY(project_id, key));
         CREATE TABLE IF NOT EXISTS artifacts (id uuid PRIMARY KEY, path text NOT NULL, mime text NOT NULL, name text NOT NULL, project_id uuid REFERENCES projects(id) ON DELETE CASCADE, created_at timestamptz NOT NULL DEFAULT now());
         CREATE TABLE IF NOT EXISTS worker_heartbeat (id text PRIMARY KEY, touched_at timestamptz NOT NULL);
+        CREATE TABLE IF NOT EXISTS llm_providers (id uuid PRIMARY KEY, name text NOT NULL, kind text NOT NULL, base_url text NOT NULL, api_key_enc text, key_hint text NOT NULL DEFAULT '', options jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+        CREATE TABLE IF NOT EXISTS llm_settings (id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());
       `);
     }).catch(error => { delete state.opentutorMigration; throw error; });
   }

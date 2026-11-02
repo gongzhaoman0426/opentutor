@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Check, Layers3, LoaderCircle, SlidersHorizontal, Sparkles, Volume2, X } from 'lucide-react';
+import { Check, Cpu, Layers3, LoaderCircle, SlidersHorizontal, Sparkles, Volume2, X } from 'lucide-react';
 import { SettingsSchema, type GenerationSettings, type SpeechResult } from '@/shared/schema';
 import { stylePresets } from '@/shared/visual-style';
 import { ComponentGallery } from './ComponentGallery';
 import { api, errorMessage } from './api';
 import { ErrorBanner, useModalFocus } from './StudioShell';
 import { VideoIntentFields } from './VideoIntentFields';
+import { ModelSettingsDialog } from './ModelSettingsDialog';
 
 type Voice = { name: string; locale: string; gender: string; displayName: string };
 type Model = { id: string; displayName: string; description?: string; isDefault?: boolean };
@@ -32,7 +33,9 @@ export function GenerationSettingsDialog({ chapterTitle, initial, busy, canGener
   const [auditioning, setAuditioning] = useState(false);
   const [speech, setSpeech] = useState<SpeechResult | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
-  const modal = useModalFocus(() => { if (!saving) onClose(); });
+  const [modelDialog, setModelDialog] = useState(false);
+  const [catalogVersion, setCatalogVersion] = useState(0);
+  const modal = useModalFocus(() => { if (!saving) onClose(); }, !modelDialog);
   useEffect(() => {
     let alive = true;
     Promise.allSettled([api<{ voices: Voice[] }>('/api/voices'), api<{ models: Model[]; warning?: string }>('/api/models')]).then(results => {
@@ -45,7 +48,7 @@ export function GenerationSettingsDialog({ chapterTitle, initial, busy, canGener
       setWarning(warnings.join(' ')); setLoading(false);
     });
     return () => { alive = false; };
-  }, []);
+  }, [catalogVersion]);
   useEffect(() => { if (speech) audio.current?.play().catch(() => {}); }, [speech]);
   const set = <K extends keyof GenerationSettings>(key: K, next: GenerationSettings[K]) => setValue(current => ({ ...current, [key]: next }));
   const audition = async () => {
@@ -77,7 +80,7 @@ export function GenerationSettingsDialog({ chapterTitle, initial, busy, canGener
           <label className="field">视频分辨率<select aria-label="视频分辨率" value={value.resolution} onChange={event => set('resolution', event.target.value as GenerationSettings['resolution'])}><option value="720p">720p · 1280 × 720</option><option value="1080p">1080p · 1920 × 1080</option></select></label>
           <div className="field"><label htmlFor="chapter-voice">微软免费配音 <span className="free-label">FREE</span></label><div className="voice-row"><select id="chapter-voice" value={value.voice} onChange={event => { const voice = voices.find(item => item.name === event.target.value); setValue(current => ({ ...current, voice: event.target.value, language: voice?.locale === 'en-US' ? 'en-US' : 'zh-CN' })); audio.current?.pause(); setSpeech(null); }}>{!voices.some(voice => voice.name === value.voice) && <option value={value.voice}>{value.voice === 'zh-CN-XiaoxiaoNeural' ? '晓晓 · 女声 · 普通话' : value.voice}</option>}{voices.map(voice => <option key={voice.name} value={voice.name}>{voiceLabel(voice)}</option>)}</select><button type="button" className="icon-button voice-preview" aria-label="试听当前音色" disabled={auditioning} onClick={audition}>{auditioning ? <LoaderCircle size={17} className="spin" /> : <Volume2 size={17} />}</button></div>{speech && <audio ref={audio} src={speech.url} controls aria-label="音色试听" className="voice-audio" />}</div>
           <label className="field generation-rate">语速 <span>{value.rate === 0 ? '标准' : `${value.rate > 0 ? '+' : ''}${value.rate}%`}</span><input aria-label="配音语速" type="range" min={-50} max={100} step={5} value={value.rate} onChange={event => { set('rate', Number(event.target.value)); audio.current?.pause(); setSpeech(null); }} /></label>
-          <label className="field">AI 模型<select aria-label="AI 模型" value={value.model} onChange={event => set('model', event.target.value)}><option value="">{defaultModel ? `${defaultModel.displayName} · 服务端默认` : '服务端默认模型'}</option>{value.model && !models.some(model => model.id === value.model) && <option value={value.model}>{value.model} · 已保存</option>}{models.map(model => <option key={model.id} value={model.id}>{model.displayName}</option>)}</select><span className="field-hint">来自当前 Codex 的模型列表。</span></label>
+          <label className="field">AI 模型<select aria-label="AI 模型" value={value.model} onChange={event => set('model', event.target.value)}><option value="">{defaultModel ? `${defaultModel.displayName} · 服务端默认` : '当前默认模型'}</option>{value.model && !models.some(model => model.id === value.model) && <option value={value.model}>{value.model} · 已保存</option>}{models.map(model => <option key={model.id} value={model.id}>{model.displayName}</option>)}</select><span className="field-hint">来自当前供应商的模型列表。<button type="button" className="link-button" onClick={() => setModelDialog(true)}><Cpu size={11} />模型设置</button></span></label>
           {loading && <p className="generation-catalog-status"><LoaderCircle size={12} className="spin" />正在获取音色与模型…</p>}{warning && <p className="generation-catalog-warning" role="status">{warning}</p>}
           <div className="generation-scope-note"><FilmNote /><p>这些设置只影响当前章节。<br />其他章节的视频与设置会保留。</p></div>
         </aside></div>
@@ -85,7 +88,7 @@ export function GenerationSettingsDialog({ chapterTitle, initial, busy, canGener
       <div id="generation-library-panel" role="tabpanel" hidden={tab !== 'library'}>{tab === 'library' && <ComponentGallery theme={value.theme} onCreative={() => { set('creationMode', 'creative'); setTab('settings'); }} />}</div>
     </div>
     <footer className="generation-dialog-footer"><span>先生成可播放预览，下载时再渲染 MP4。</span><div><button type="button" className="button secondary" disabled={saving} onClick={() => apply(false)}>保存设置</button><button type="button" className="button primary" disabled={saving || busy || !canGenerate} onClick={() => apply(true)}>{saving ? <LoaderCircle size={15} className="spin" /> : <Sparkles size={15} />}{busy ? '有任务正在生成' : !canGenerate ? '先填写本章文稿' : '生成本章视频'}</button></div></footer>
-  </section></div>;
+  </section>{modelDialog && <ModelSettingsDialog onClose={() => setModelDialog(false)} onChanged={() => setCatalogVersion(version => version + 1)} />}</div>;
 }
 
 function FilmNote() { return <Layers3 size={18} strokeWidth={1.5} />; }

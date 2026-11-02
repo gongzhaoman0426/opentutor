@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { compileLesson, regenerateScene, type CompiledLesson } from './codex';
+import { compileLesson, regenerateScene, type CompiledLesson } from './director';
 import { synthesizeSpeech } from './speech';
 import { assembleNarrationAudio } from './narration-audio';
 import { LessonSchema, validateLesson, type Diagnostic, type JobRecord, type Lesson, type RenderPlan, type SourceDocument, type SpeechResult } from '../shared/schema';
@@ -77,7 +77,7 @@ export async function runPipeline(job: JobRecord, signal: AbortSignal, reporter:
     // Only the compiler's scoped chapter cache is reused: it validates real image bytes,
     // full course context and the resolved model profile before returning cached IR.
     if (!compiled) {
-      await reporter.progress('codex', 0, 1, job.kind === 'regenerate' ? 'Codex 正在重新规划选中的场景' : 'Codex 正在规划旁白、分镜与画面对象');
+      await reporter.progress('planning', 0, 1, job.kind === 'regenerate' ? '模型正在重新规划选中的场景' : '模型正在规划旁白、分镜与画面对象');
       const options = { signal, contextSource, ownerProjectId: snapshot.id, courseTitle: snapshot.title, lessonTitle: job.chapterId ? snapshot.chapters?.find(chapter => chapter.id === job.chapterId)?.title : undefined, validateCustom: services.validateCustomLesson, cacheDirectory: services.cacheDirectory, onLesson: (partial: Lesson) => publishPreview(partial), onProgress: (done: number, total: number, message: string) => reporter.progress('codex', done, total, message), onStage: (stage: string, done: number, total: number, message: string) => reporter.progress(stage, done, total, message) };
       if (job.kind === 'regenerate') {
         if (!lesson || !job.sceneId) throw new Error('缺少需要重新生成的场景');

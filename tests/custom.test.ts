@@ -60,14 +60,14 @@ describe('isolated dynamic teaching components', () => {
   it('requires a bounded, synchronous string result', async () => {
     const runtime = await loadCustomRuntime();
     expect(validateCustomCode('return <svg/>')).toMatch(/语法/);
-    expect(validateCustomCode('x'.repeat(12001))).toMatch(/12000/);
+    expect(validateCustomCode('x'.repeat(20001))).toMatch(/20000/);
     expect(() => renderCustomFrame(runtime, 'return Promise.resolve("svg")', frame)).toThrow(/同步/);
-    expect(() => renderCustomFrame(runtime, 'return "x".repeat(100001)', frame)).toThrow(/太大/);
+    expect(() => renderCustomFrame(runtime, 'return "x".repeat(300001)', frame)).toThrow(/太大/);
   });
   it('preflights all creative examples at multiple frames', async () => {
     for (const sample of componentCatalog.filter(item => item.kind === 'creative')) expect(await validateCustomLesson(catalogLesson(sample))).toEqual([]);
-    expect(new Set(componentCatalog.map(item => item.plan.scenes[0].scene.layout)).size).toBe(6);
-    expect(new Set(componentCatalog.flatMap(item => item.plan.scenes[0].scene.objects.map(object => object.type))).size).toBe(7);
+    expect(new Set(componentCatalog.map(item => item.plan.scenes[0].scene.layout)).size).toBe(7);
+    expect(new Set(componentCatalog.flatMap(item => item.plan.scenes[0].scene.objects.map(object => object.type))).size).toBe(8);
   });
   it('preserves valid presets and corrects unreadable generated colors', () => {
     for (const preset of stylePresets) expect(resolvePalette(preset.id)).toEqual(preset.palette);

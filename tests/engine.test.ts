@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { compileLesson, chunkSource, codexEnvironment, type JsonRunner } from '../src/engine/codex';
+import { compileLesson, chunkSource, type JsonRunner } from '../src/engine/director';
 import { normalizeBoundaries, speechCacheKey } from '../src/engine/speech';
 import { defaultSettings, type Lesson } from '../src/shared/schema';
 import { parseSource } from '../src/shared/source';
@@ -11,17 +11,6 @@ function fixtureLesson(markdown: string): Lesson {
 }
 
 describe('director validation', () => {
-  it('does not pass application credentials into the harness subprocess', () => {
-    vi.stubEnv('AUTH_TOKEN', 'unit-test-session-token');
-    vi.stubEnv('DATABASE_URL', 'unit-test-database-url');
-    vi.stubEnv('CODEX_PROXY_URL', 'http://127.0.0.1:7890');
-    try {
-      const env = codexEnvironment();
-      expect(env.AUTH_TOKEN).toBeUndefined();
-      expect(env.DATABASE_URL).toBeUndefined();
-      expect(env.HTTPS_PROXY).toBe('http://127.0.0.1:7890/');
-    } finally { vi.unstubAllEnvs(); }
-  });
   it('repairs invalid references with bounded model calls, then verifies source coverage', async () => {
     const markdown = '知识需要先理解概念，再通过实例验证。';
     const valid = fixtureLesson(markdown);

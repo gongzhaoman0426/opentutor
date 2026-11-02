@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileLesson, type JsonRunner } from '../src/engine/codex';
+import { compileLesson, type JsonRunner } from '../src/engine/director';
 import { defaultSettings, type Lesson } from '../src/shared/schema';
 import { parseSource } from '../src/shared/source';
 import { buildRenderPlan } from '../src/video/timeline';

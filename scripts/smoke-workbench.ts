@@ -23,10 +23,10 @@ async function run(project: Project, kind: JobKind): Promise<{ project: Project;
 }
 
 // Real provider check. Compiler caches are scoped to the test course, so the
-// initial compose may call Codex even when these notes were generated elsewhere.
+// initial compose may call the model even when these notes were generated elsewhere.
 const { projects } = await api<{ projects: Project[] }>('/api/projects');
 const source = projects.find(p => p.title === '验证课程 · 勾股定理' && p.lesson);
-if (!source) throw new Error('请先运行原始端到端验证，建立已校验的勾股定理课程与 Codex 缓存。');
+if (!source) throw new Error('请先运行原始端到端验证，建立已校验的勾股定理课程与 模型缓存。');
 let testProject: Project | null = null;
 try {
   const created = await api<{ project: Project }>('/api/projects', { method: 'POST', body: JSON.stringify({ title: '[验证] 分阶段工作台', markdown: source.markdown, settings: source.settings, assets: source.assets }) });

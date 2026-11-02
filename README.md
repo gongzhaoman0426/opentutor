@@ -1,6 +1,6 @@
 # OpenTutor
 
-开源 Markdown 视频工作室：在网页中导入 Markdown，使用 Codex harness 生成视频 DSL、讲稿与分镜，通过微软 Edge 免费语音生成配音，再以 Remotion 导出带字幕的 MP4。初版不包含数字人或 VTuber。
+开源 Markdown 视频工作室：在网页中导入 Markdown，调用任意 OpenAI 兼容的大模型接口（GLM、DeepSeek、OpenAI、OpenRouter 等，网页内配置）生成视频 DSL、讲稿与分镜，通过微软 Edge 免费语音生成配音，再以 Remotion 导出带字幕的 MP4。初版不包含数字人或 VTuber。
 
 适合产品介绍、信息汇报、观点分享、故事叙述、知识讲解等图文视频。默认自动判断表达方式；视频用途预设和自由创作要求用于指定结构、语气与节奏，画面风格单独控制配色。无需将内容改写成教学讲义。
 
@@ -13,31 +13,49 @@ npm ci
 cp .env.example .env
 npm run infra:up
 npm run speech:setup
-codex login
 npm run dev
 ```
 
-打开 **http://127.0.0.1:3330**。`dev` 初始化数据库并同时启动网页与独立 Worker，关闭开发进程会停止两者。没有 `uv` 时，可以用 `python3 -m venv .venv` 与 `.venv/bin/pip install -r requirements.txt` 安装语音依赖。
+打开 **http://127.0.0.1:3330**，点右上角“**模型设置**”添加供应商并选择模型（见下）。`dev` 初始化数据库并同时启动网页与独立 Worker，关闭开发进程会停止两者。没有 `uv` 时，可以用 `python3 -m venv .venv` 与 `.venv/bin/pip install -r requirements.txt` 安装语音依赖。
 
-已有 Codex 登录可以供个人本地运行使用。指定已有运行时，在 `.env` 设置 `CODEX_PATH` 为其绝对路径；模型默认沿用 Codex 配置，也可以通过 `CODEX_MODEL` 明确指定。部署服务时请配置服务自己的模型访问凭证，避免挂载个人完整工作目录。
+## 模型接入
 
-如果终端不能直接访问模型服务，在 `.env` 设置 `CODEX_PROXY_URL` 为已有代理地址，例如 `http://127.0.0.1:7890`。它只作用于 Codex 子进程；程序不会修改系统代理或全局 Codex 配置。
+不再依赖 Codex：生成使用标准的 OpenAI 兼容 **Chat Completions** 接口，供应商、API Key 与模型都在网页“模型设置”里配置，无需改 `.env` 或重启。
+
+1. 点首页右上角“模型设置”，选择预设（**智谱 GLM**、**DeepSeek**、OpenAI、自定义）并填入 API Key；“测试连接”会真实请求一次模型。
+2. “生成模型”选编排、讲稿与画面代码使用的模型，例如 `glm-4.6`、`deepseek-chat`、`deepseek-reasoner`。
+3. “图片理解模型”只在章节含图片、且生成模型不能看图时需要。DeepSeek 不接收图片，可搭配 `glm-4.6v`；GPT-4.1、GLM-4.6V 这类能看图的模型勾选“该模型本身支持图片输入”即可。图片先被理解成文字描述，再交给生成模型编排。
+4. 每章仍可在“生成设置 → AI 模型”覆盖模型名；下拉来自当前供应商的 `/models`（接口不开放时回退到常用模型，也可手填）。
+
+API Key 以 AES-256-GCM 加密存入 PostgreSQL（`llm_providers` 表），密钥来自 `OPENTUTOR_SECRET_KEY`，未设置时自动生成 `.data/secret.key`（Web 与 Worker 共用，请和数据库一起备份）；浏览器永远拿不到 Key，只显示末四位。接口地址由登录用户填写并由服务端发起请求，远程部署前请先设置 `AUTH_TOKEN`。
+
+结构化输出按供应商能力自动降级：`json_schema` → `json_object`（GLM、DeepSeek 默认）→ 仅提示词约束，并带 Schema 与现有校验、修复重试。输出被长度上限截断或超时时，章节会自动拆小重试。需要代理时使用 Node 的环境代理：`NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7890 npm run dev`。
+
+无界面部署也可以只用环境变量（网页没有配置时生效）：`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`，可选 `LLM_VISION_MODEL`、`LLM_JSON_MODE`、`LLM_MAX_TOKENS`。
 
 ## 制作流程
 
 1. 主页输入项目名称创建项目，进入单屏编辑页。
 2. 左侧管理章节，中间按章编写或导入 Markdown；上传、拖入或粘贴图片后自动插入稳定素材引用。
-3. 右侧“Markdown”预览文稿与图片。点击“生成视频”打开本章设置，可选视频用途、目标受众与创作要求，以及分辨率、微软音色、画面风格、Codex 模型和稳定／创作模式。
+3. 右侧“Markdown”预览文稿与图片。点击“生成视频”打开本章设置，可选视频用途、目标受众与创作要求，以及分辨率、微软音色、画面风格、AI 模型和稳定／创作模式。
 4. 确认“生成本章视频”后，系统自动完成图片理解、章节编排、校验、微软配音和时间轴。一个章节生成一个独立视频；切换章节时，预览与下载同步切换。
 5. 点击“下载视频”才开始当前章节的 MP4 渲染；相同输入已有成片时直接下载。修改本章保留旧预览，编辑其他章节不会让本章视频失效。
 
 生成预览不编码 MP4。底层独立编排、配音、局部重生成和导出接口继续保留。详细交互见[工作台设计](docs/workbench-design.md)。
 
-稳定模式只使用文字、代码、公式、表格、图片和分步关系等预设组件。创作模式允许 AI 编写动态图形 JavaScript，按视频帧生成 SVG，用于图表、运动和过程演示；代码在有时间和内存上限的 QuickJS 环境中执行，不能访问宿主 DOM、网络或文件。设置中的组件库可播放全部组件与布局示例。
+稳定模式只使用文字、代码、公式、表格、图片、分步关系和**数据图表**（`viz`：柱状、折线、环形、关键数字、时间线、流程图，由程序渲染并带入场动画，不执行模型写的代码）。
+
+创作模式在此基础上允许模型为画面编写动态图形 JavaScript，按视频帧生成 SVG：
+
+- **全屏画面**：`canvas` 布局让 1–4 个图层铺满整屏（1280×720 基准坐标），用于开场、关键数据故事、机制演示和结尾；
+- **更完整的 SVG**：渐变、图案、裁剪、蒙版、滤镜（模糊/发光/投影/噪点）、`use`、`textPath`、绘线动画，所有引用只能指向本 SVG 内的定义；
+- **动效工具库**：沙箱内置 `ease.*`、`stagger`、`range`、`mix/alpha`、`noise`、`arc`、`smoothPath`、`fmt` 等纯函数，生成代码不必手写缓动与分段；
+- **镜头与转场**：场景间淡入淡出、轻微推拉与入场回弹、后出现的对象弹入、字幕逐字推进、背景光晕缓动；
+- **提示词与示例**：创作模式附带经过测试的参考实现，鼓励有层次的构图、质感与节奏，同时要求动效服务信息。
+
+代码在有时间（150 ms/帧）、内存（32 MB）、节点（6000）与输出上限的 QuickJS 环境中执行，不能访问宿主 DOM、网络或文件。设置中的组件库可播放全部组件与布局示例。
 
 新建项目默认面向普通观众，视频用途为“自动判断”。旧项目继续保留原受众、参数、文稿与成片；新增字段的默认值不会使旧章节视频过期。改变用途或创作要求会更新当前章的输入版本，需要重新生成该章视频。
-
-模型下拉来自本机 Codex `model/list` 目录；目录可能有缓存，并不保证每个型号都对当前账号开放，实际生成时验证访问。选择“服务端默认”时沿用已配置模型。
 
 图片通过 `asset://UUID` 引用，AI 接收实际图片像素及章节上下文。画面可展示原图、聚焦区域和高亮；缺失或歧义引用会报告错误。图片分析和章节结果按内容与版本缓存，未变化的配音也可复用。
 
@@ -50,7 +68,7 @@ app/                       Next.js 网页与 API
 src/components/            工作室、导入设置、编辑器
 src/shared/                DSL Schema、Markdown 来源索引、检查
 src/server/                PostgreSQL、BullMQ、认证、工件与历史
-src/engine/                Codex、Edge TTS、缓存、生成流水线
+src/engine/                OpenAI 兼容模型客户端、导演提示词、Edge TTS、缓存、生成流水线
 src/worker/                队列消费、租约、取消与恢复
 src/video/                 预览与导出共用的 Remotion 场景、时间轴
 scripts/speech_bridge.py   Python Edge TTS 桥接
@@ -73,17 +91,15 @@ PostgreSQL 是任务与项目状态的来源，Redis 负责调度。提交任务
 | `OPENTUTOR_DATA_DIR` | Web 与 Worker 共享的工件目录 |
 | `PYTHON_PATH` | 已安装 `edge-tts` 的 Python，默认 `.venv/bin/python` |
 | `AUTH_TOKEN` | 远程访问令牌；本地回环模式可留空 |
-| `CODEX_PATH` / `CODEX_MODEL` | 可选的 Codex 运行时与模型 |
-| `CODEX_REASONING_EFFORT` | 视频生成的推理强度，默认 `medium`，不继承桌面 Codex 的超高推理配置 |
-| `CODEX_API_KEY` / `CODEX_BASE_URL` | 可选的服务模型访问配置 |
-| `CODEX_PROXY_URL` | 只供 Codex 使用的已有代理 |
-| `CODEX_TIMEOUT_MS` | 每次 Codex 调用时限，默认 240000 ms |
+| `OPENTUTOR_SECRET_KEY` | 加密供应商 API Key 的主密钥；留空则使用 `.data/secret.key` |
+| `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | 可选：网页未配置模型时的环境变量后备；另有 `LLM_VISION_MODEL`、`LLM_JSON_MODE`、`LLM_MAX_TOKENS` |
+| `LLM_TIMEOUT_MS` | 每次模型调用时限，默认 300000 ms |
 | `JOB_TIMEOUT_MS` | 单个后台任务时限，默认一小时 |
 | `WORKER_CONCURRENCY` | 同时运行的项目任务数，默认 1 |
 | `RENDER_CONCURRENCY` | 每项导出的并行绘帧页数；留空按 CPU、内存与 Worker 数自动分配，最多 8 路。可设正整数，最高不超过可用 CPU 数 |
 | `RENDER_GL` | 默认 `auto`，由 Chrome 选择绘图后端；需要强制软件绘图时设为 `swangle` |
 
-长章节按小批编排，创作模式采用更小的正文预算，并限制每批画面数量。每批通过校验后立即保存并更新预览；单批超时会自动拆小重试。重新提交同一章节时复用已验证的批次，不需要删减文稿。单次调用和整项任务仍受上述时间上限控制。
+长章节按小批编排，创作模式采用更小的正文预算，并限制每批画面数量；输出被截断时自动拆小重试。每批通过校验后立即保存并更新预览；单批超时会自动拆小重试。重新提交同一章节时复用已验证的批次，不需要删减文稿。单次调用和整项任务仍受上述时间上限控制。
 
 首次下载需要把完整时间轴逐帧绘制并编码：例如 16 分钟、30 fps 的视频约有 28,800 帧，浏览器预览可以实时播放并不代表 MP4 已经生成。导出状态显示实际完成的画面帧数、平均绘制速度、耗时，以及后续编码和合成阶段；画面帧数全部完成后仍需等待文件发布。相同版本再次下载复用已有成片。提高 `RENDER_CONCURRENCY` 可能增加内存与 CPU 占用，应按机器实测调整；Worker 配置在重启后生效。
 
@@ -101,11 +117,11 @@ npm run build
 
 `node --import tsx --env-file=.env scripts/smoke-media.ts` 可验证真实 Edge 语音、时间轴和 MP4 编码，结果保存到 `.data/verification/`。这个检查使用明确手写的教学场景，仅用于媒体链路验证。
 
-`node --import tsx --env-file=.env scripts/smoke-chapters.ts` 使用独立测试项目验证真实图片识别、章节编排、微软配音、无需 MP4 的预览和下载渲染，结束后清理项目。它会实际调用已配置的 Codex 和微软在线服务，报告保存到 `.data/verification/chapter-smoke-report.json`。
+`node --import tsx --env-file=.env scripts/smoke-chapters.ts` 使用独立测试项目验证真实图片识别、章节编排、微软配音、无需 MP4 的预览和下载渲染，结束后清理项目。它会实际调用已配置的模型和微软在线服务，报告保存到 `.data/verification/chapter-smoke-report.json`。
 
 `node --import tsx --env-file=.env scripts/smoke-chapter-settings.ts` 验证章节输出隔离、不同音色与分辨率、稳定模式、真实 AI 自定义组件、修改其他章节后继续导出本章。报告与 MP4 保存到 `.data/verification/`；会调用真实模型和语音服务。
 
-已有 `scripts/smoke-app.ts` 创建的勾股定理项目时，`scripts/smoke-workbench.ts` 可额外验证独立编排、作者修改、配音和导出接口；它同样可能实际调用 Codex，不能假设跨项目复用模型缓存。
+已有 `scripts/smoke-app.ts` 创建的勾股定理项目时，`scripts/smoke-workbench.ts` 可额外验证独立编排、作者修改、配音和导出接口；它同样可能实际调用已配置的模型，不能假设跨项目复用模型缓存。
 
 生产构建后分别运行 `npm start` 和 `npm run worker`，并保留 PostgreSQL、Redis 及共享工件目录。请通过 `.env` 或服务环境传递 Worker 配置；`npm start` 的监听端口可设置 `PORT` 环境变量。
 
@@ -119,6 +135,7 @@ npm run build
 
 - [产品需求](docs/product-requirements.md)
 - [技术方案](docs/technical-design.md)
-- [Codex SDK 官方文档](https://learn.chatgpt.com/docs/codex-sdk)
+- [智谱 GLM API](https://docs.bigmodel.cn/)
+- [DeepSeek API](https://api-docs.deepseek.com/)
 - [Edge TTS 接入项目](https://github.com/rany2/edge-tts)
 - [Remotion Renderer](https://www.remotion.dev/docs/renderer/render-media)

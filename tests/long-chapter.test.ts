@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { batchImageOccurrences, chunkSource, CodexTurnTimeoutError, compileLesson, generationProfile, type JsonRunner } from '../src/engine/codex';
+import { batchImageOccurrences, chunkSource, ModelTurnLimitError, compileLesson, generationProfile, type JsonRunner } from '../src/engine/director';
 import { defaultSettings, type Asset, type Lesson } from '../src/shared/schema';
 import { parseSource } from '../src/shared/source';
 
@@ -58,8 +58,8 @@ describe('bounded long chapter compilation', () => {
       const firstCalls: Payload[] = [];
       const runner: JsonRunner = async prompt => {
         const data = payload(prompt); firstCalls.push(data);
-        if (firstCalls.length === 1) throw new CodexTurnTimeoutError();
-        if (firstCalls.length === 3) throw new Error('Codex 生成失败：401 Unauthorized');
+        if (firstCalls.length === 1) throw new ModelTurnLimitError();
+        if (firstCalls.length === 3) throw new Error('模型服务返回 401：身份验证失败');
         return result(data);
       };
       const options = { source, ownerProjectId: 'owner', cacheDirectory: cacheFor(directory), onLesson: (lesson: Lesson) => { publications.push(lesson); } };
@@ -93,13 +93,13 @@ describe('bounded long chapter compilation', () => {
     const controller = new AbortController();
     const reason = new Error('用户停止任务');
     let calls = 0;
-    await expect(compileLesson('解释变量如何保存数据。'.repeat(100), defaultSettings, [], { signal: controller.signal, runner: async () => { calls++; controller.abort(reason); throw new CodexTurnTimeoutError(); } })).rejects.toBe(reason);
+    await expect(compileLesson('解释变量如何保存数据。'.repeat(100), defaultSettings, [], { signal: controller.signal, runner: async () => { calls++; controller.abort(reason); throw new ModelTurnLimitError(); } })).rejects.toBe(reason);
     expect(calls).toBe(1);
   });
 
   it('has a bounded subdivision depth and reports resumable progress if tiny pieces still time out', async () => {
     let calls = 0;
-    await expect(compileLesson('讲解函数参数与返回值。'.repeat(180), { ...defaultSettings, creationMode: 'creative' }, [], { runner: async () => { calls++; throw new CodexTurnTimeoutError(); } })).rejects.toThrow('保留缓存');
+    await expect(compileLesson('讲解函数参数与返回值。'.repeat(180), { ...defaultSettings, creationMode: 'creative' }, [], { runner: async () => { calls++; throw new ModelTurnLimitError(); } })).rejects.toThrow('保留缓存');
     expect(calls).toBeLessThanOrEqual(4);
   });
 
@@ -115,16 +115,11 @@ describe('bounded long chapter compilation', () => {
     expect(calls).toBe(2); expect(output.lesson.scenes).toHaveLength(1);
   });
 
-  it('pins medium reasoning effort by default and keys caches by explicit overrides', async () => {
-    vi.stubEnv('CODEX_REASONING_EFFORT', '');
-    try {
-      const first = JSON.parse(await generationProfile('selected-model'));
-      expect(first.reasoningEffort).toBe('medium');
-      expect(first.model).toBe('selected-model');
-      vi.stubEnv('CODEX_REASONING_EFFORT', 'high');
-      const second = JSON.parse(await generationProfile('selected-model'));
-      expect(second.reasoningEffort).toBe('high');
-      expect(second).not.toEqual(first);
-    } finally { vi.unstubAllEnvs(); }
+  it('keys caches by the selected model and prompt version', async () => {
+    const first = JSON.parse(await generationProfile('selected-model'));
+    const second = JSON.parse(await generationProfile('another-model'));
+    expect(first.model).toBe('selected-model');
+    expect(first.version).toMatch(/^director-/);
+    expect(second).not.toEqual(first);
   });
 });

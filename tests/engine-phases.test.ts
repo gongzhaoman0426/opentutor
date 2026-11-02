@@ -160,7 +160,7 @@ describe('independent generation stages', () => {
     expect(dependencies.synthesizeSpeech).not.toHaveBeenCalled();
     expect(dependencies.renderVideo).not.toHaveBeenCalled();
   });
-  it('speech exposes completed real clips incrementally and returns aligned subtitles without Codex or MP4', async () => {
+  it('speech exposes completed real clips incrementally and returns aligned subtitles without a model or MP4', async () => {
     const { dependencies, reporter, previews } = setup();
     dependencies.synthesizeSpeech = vi.fn(async text => {
       if (text === fixture.scenes[1].narration[0].text) {

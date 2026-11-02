@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isNormalizedBox } from './images';
-import { validateCustomCode } from './custom';
+import { CUSTOM_CODE_LIMIT, validateCustomCode } from './custom';
+import { parseViz } from './viz';
 import { videoIntentIds } from './video-intent';
 import type { RenderProgress } from './render-progress';
 
@@ -35,8 +36,8 @@ export const ImagePresentationSchema = z.object({ fit: z.literal('contain'), cap
 export type ImagePresentation = z.infer<typeof ImagePresentationSchema>;
 
 export const ObjectSchema = z.object({
-  id: z.string().min(1).max(80), type: z.enum(['text', 'code', 'formula', 'table', 'image', 'diagram', 'custom']),
-  content: z.string().max(12000), language: z.string().max(40), imagePresentation: ImagePresentationSchema.nullable().optional(),
+  id: z.string().min(1).max(80), type: z.enum(['text', 'code', 'formula', 'table', 'image', 'diagram', 'viz', 'custom']),
+  content: z.string().max(CUSTOM_CODE_LIMIT), language: z.string().max(40), imagePresentation: ImagePresentationSchema.nullable().optional(),
 }).strict();
 export const UtteranceSchema = z.object({
   id: z.string().min(1).max(80), text: z.string().min(1).max(2000),
@@ -44,7 +45,7 @@ export const UtteranceSchema = z.object({
 }).strict();
 export const SceneSchema = z.object({
   id: z.string().min(1).max(80), title: z.string().min(1).max(120), chapter: z.string().max(120), chapterId: z.string().max(80).optional(),
-  layout: z.enum(['title', 'content', 'compare', 'code', 'diagram', 'summary']),
+  layout: z.enum(['title', 'content', 'compare', 'code', 'diagram', 'summary', 'canvas']),
   sourceBlockIds: z.array(z.string()).min(1),
   objects: z.array(ObjectSchema).min(1).max(8), narration: z.array(UtteranceSchema).min(1).max(16),
 }).strict();
@@ -104,11 +105,18 @@ export function validateLesson(lesson: Lesson, source: SourceDocument, assets: A
       }
     }
     const shown = new Set(scene.narration.flatMap(u => u.showObjectIds));
+    if (scene.layout === 'canvas') {
+      if (creationMode !== 'creative') issues.push({ code: 'CANVAS_MODE', severity: 'error', sceneId: scene.id, message: '全屏 canvas 布局只能在创作模式使用；稳定模式请用其他布局。' });
+      if (scene.objects.length > 4 || scene.objects.some(o => o.type !== 'custom')) issues.push({ code: 'CANVAS_OBJECTS', severity: 'error', sceneId: scene.id, message: 'canvas 场景只能包含 1–4 个 custom 图层（全部内容由代码绘制），不要混用文字、图片等对象；原图素材请使用其他布局的 image 对象。' });
+    }
     for (const o of scene.objects) {
       if (o.type === 'custom') {
         const codeError = validateCustomCode(o.content);
         if (creationMode !== 'creative') issues.push({ code: 'CUSTOM_MODE', severity: 'error', sceneId: scene.id, message: '稳定模式不能执行自定义代码，请选择创意模式或重新生成模板画面。' });
         if (codeError) issues.push({ code: 'INVALID_CUSTOM_CODE', severity: 'error', sceneId: scene.id, message: codeError });
+      } else if (o.type === 'viz') {
+        const parsed = parseViz(o.content);
+        if ('error' in parsed) issues.push({ code: 'INVALID_VIZ', severity: 'error', sceneId: scene.id, message: parsed.error });
       } else if (o.content.length > 6000) issues.push({ code: 'CONTENT_TOO_LONG', severity: 'error', sceneId: scene.id, message: '模板对象内容最多 6,000 字符。' });
       if (!shown.has(o.id)) issues.push({ code: 'HIDDEN_OBJECT', severity: 'error', sceneId: scene.id, message: `对象未在旁白对应画面中显示：${o.id}` });
       if (o.type === 'image' && !assets.some(a => a.id === o.content)) issues.push({ code: 'MISSING_ASSET', severity: 'error', sceneId: scene.id, message: '图片必须引用已上传素材 ID' });
@@ -118,7 +126,7 @@ export function validateLesson(lesson: Lesson, source: SourceDocument, assets: A
     const estimatedHeights = scene.objects.map(o => {
       const columns = scene.layout === 'compare' ? 20 : 42;
       const units = (text: string) => [...text].reduce((sum, ch) => sum + (/[^\x00-\x7F]/.test(ch) ? 1 : 0.55), 0);
-      if (o.type === 'image' || o.type === 'custom') return 326;
+      if (o.type === 'image' || o.type === 'custom' || o.type === 'viz') return scene.layout === 'canvas' ? 0 : 326;
       if (o.type === 'formula') return 96;
       const lines = o.content.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(units(line) / columns)), 0);
       return 36 + lines * (o.type === 'code' ? 34 : 39);

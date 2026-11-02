@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDown, ArrowRight, ArrowUpRight, BookOpen, Check, Clock3, Copy, FileText, Film, Leaf, LoaderCircle, Plus, Search, Sparkles, Trash2, Waves } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUpRight, BookOpen, Check, Clock3, Copy, Cpu, FileText, Film, Leaf, LoaderCircle, Plus, Search, Sparkles, Trash2, Waves } from 'lucide-react';
 import type { Project } from '@/shared/schema';
 import { ErrorBanner, SessionGate, useModalFocus } from '@/components/StudioShell';
+import { ModelSettingsDialog } from '@/components/ModelSettingsDialog';
 import { CreateCourse } from '@/components/CreateCourse';
 import { activeStatus, api, ApiError, errorMessage, formatDate, formatTime, jobLabels } from '@/components/api';
 
@@ -15,6 +16,7 @@ type Health = { ready: boolean; checks: Record<string, { ready: boolean; error?:
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [modelSettings, setModelSettings] = useState(false);
   const [health, setHealth] = useState<Health | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -52,9 +54,9 @@ export default function Home() {
   };
   const filtered = projects.filter(p => p.title.toLowerCase().includes(search.toLowerCase()) && (filter === 'all' || (filter === 'ready' ? hasPreview(p) : activeStatus(p.latestJob?.status))));
   const missing = health ? Object.entries(health.checks).filter(([, value]) => !value.ready) : [];
-  const names: Record<string, string> = { database: '数据库', redis: '任务队列', worker: '后台 Worker', codex: 'Codex', speech: '微软 TTS' };
+  const names: Record<string, string> = { database: '数据库', redis: '任务队列', worker: '后台 Worker', model: '语言模型', speech: '微软 TTS' };
   return <div className="course-home">
-    <header className="workspace-topbar"><Link href="/" className="course-home-brand"><Leaf size={20} />OpenTutor</Link><div className="topbar-right"><span className={`connection-badge ${health?.ready ? '' : 'pending'}`}><span />{health?.ready ? '引擎已就绪' : health ? '服务待连接' : '正在连接'}</span><span className="user-avatar" aria-label="个人工作空间">我</span></div></header>
+    <header className="workspace-topbar"><Link href="/" className="course-home-brand"><Leaf size={20} />OpenTutor</Link><div className="topbar-right"><button type="button" className="topbar-link" onClick={() => setModelSettings(true)}><Cpu size={15} />模型设置</button><span className={`connection-badge ${health?.ready ? '' : 'pending'}`}><span />{health?.ready ? '引擎已就绪' : health ? '服务待连接' : '正在连接'}</span><span className="user-avatar" aria-label="个人工作空间">我</span></div></header>
     <div className="dashboard-content"><div className="page-intro"><div><p className="eyebrow">YOUR VIDEO STUDIO</p><h1>我的项目</h1><p>产品介绍、信息汇报、故事叙述或知识讲解。从 Markdown 开始，每章生成一个视频。</p></div><div className="home-create-actions"><button className="button primary" onClick={() => setCreate('empty')}><Plus size={17} />创建项目</button></div></div>
     {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
     {missing.length > 0 && <div className="connection-notice"><span className="notice-icon"><Waves size={18} /></span><div><strong>工作室已打开，生成服务还在等待连接。</strong><p>{missing.map(([name, check]) => `${names[name] || name}${check.error ? `：${check.error}` : ''}`).join(' · ')}</p></div><button className="text-button" onClick={load}>重新检查</button></div>}
@@ -65,6 +67,7 @@ export default function Home() {
       </article>)}<button className="new-course-card" onClick={() => setCreate('empty')}><span><Plus size={26} strokeWidth={1.4} /></span><strong>开始一个新项目</strong><p>导入文稿，让想法成为视频</p></button></div> : projects.length || search || filter !== 'all' ? <div className="empty-state compact"><Search size={25} /><h3>这里还没有匹配的项目</h3><p>试试其他关键词，或查看全部项目。</p><button className="text-button" onClick={() => { setFilter('all'); setSearch(''); }}>查看全部</button></div> : <div className="empty-state"><div className="empty-book"><BookOpen size={33} strokeWidth={1.2} /><span>+</span></div><h3>第一个视频，从这里开始。</h3><p>已有文稿就够了。上传 Markdown，<br />把产品、观点和故事变成清晰、生动的视频。</p><button className="button primary" onClick={() => setCreate('empty')}><Plus size={16} />创建我的第一个项目</button></div>}
     </div></section><footer className="dashboard-footer"><span><Leaf size={13} />认真讲好每一个想法。</span><span>Open source. Made for your ideas.</span></footer></div>
     {create && <CreateCourse onClose={() => setCreate(null)} />}
+    {modelSettings && <ModelSettingsDialog onClose={() => setModelSettings(false)} onChanged={() => { void load(); }} />}
     {needsSession && <SessionGate onSuccess={load} />}
     {deleteTarget && <div className="modal-overlay"><section ref={deleteModal} className="modal-card confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title"><h2 id="delete-title">删除这个项目？</h2><p>「{deleteTarget.title}」及其项目记录将被删除。这个操作无法撤销。</p><div className="confirm-actions"><button className="button secondary" onClick={() => setDeleteTarget(null)} disabled={!!actionBusy}>保留项目</button><button className="button danger" onClick={remove} disabled={!!actionBusy}>{actionBusy ? '正在删除…' : '确认删除'}</button></div></section></div>}
   </div>;

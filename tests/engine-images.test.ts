@@ -6,12 +6,10 @@ import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { analyzeSourceImages, normalizeImagePresentations, type ImageAnalysis } from '../src/engine/images';
-import { codexJsonRunner, compileLesson, type JsonRunner } from '../src/engine/codex';
+import { compileLesson, type JsonRunner } from '../src/engine/director';
 import { defaultSettings, type Asset, type Lesson } from '../src/shared/schema';
 import { parseSource } from '../src/shared/source';
 
-const harness = vi.hoisted(() => ({ input: undefined as unknown, threadOptions: undefined as unknown, inspectInput: undefined as ((input: unknown) => Promise<void>) | undefined }));
-vi.mock('@openai/codex-sdk', () => ({ Codex: class { startThread(options: unknown) { harness.threadOptions = options; return { runStreamed: async (input: unknown) => { harness.input = input; await harness.inspectInput?.(input); return { events: (async function* () { yield { type: 'item.completed', item: { type: 'agent_message', text: '{"ok":true}' } }; yield { type: 'turn.completed' }; })() }; } }; } } }));
 let temporary: string;
 let asset: Asset;
 let bytes: Buffer;
@@ -22,7 +20,6 @@ beforeEach(async () => {
   bytes = await sharp({ create: { width: 160, height: 90, channels: 3, background: '#0000ff' } }).png().toBuffer();
   await writeFile(path.join(temporary, 'uploaded'), bytes);
   asset = { id, name: 'figure.png', mime: 'image/png', url: `/api/artifacts/${id}`, hash: createHash('sha256').update(bytes).digest('hex') };
-  harness.inspectInput = undefined;
 });
 afterEach(async () => { await rm(temporary, { recursive: true, force: true }); });
 const observation = { summary: '蓝色示意图', kind: 'illustration', visibleText: [], uncertainties: [], regions: [{ id: 'whole', label: '整图', box: { x: 0, y: 0, width: 1, height: 1 } }] };
@@ -78,17 +75,5 @@ describe('real image input and grounded teaching references', () => {
     const normalized = normalizeImagePresentations(value, [analysis], issues) as Lesson;
     expect(normalized.scenes[0].objects[0].imagePresentation?.region).toBeNull();
     expect(issues[0].code).toBe('IMAGE_REGION_FALLBACK');
-  });
-  it('stages image attachments inside the read-only Codex working directory with a real PNG extension', async () => {
-    const input = path.join(temporary, 'uploaded');
-    harness.inspectInput = async unknown => {
-      const items = unknown as { type: string; path?: string; text?: string }[];
-      expect(items[0].text).toContain(id); expect(items[1].type).toBe('local_image');
-      expect(items[1].path).toMatch(/opentutor-director-.*\/image-1\.png$/);
-      expect((await readFile(items[1].path!)).equals(bytes)).toBe(true);
-    };
-    const response = await codexJsonRunner('Explain the attached image', { type: 'object' }, AbortSignal.timeout(5000), undefined, [{ assetId: id, path: input, mime: 'image/png', hash: asset.hash }], { model: 'chapter-selected-model' });
-    expect(response).toBe('{"ok":true}');
-    expect(harness.threadOptions).toEqual(expect.objectContaining({ sandboxMode: 'read-only', approvalPolicy: 'never', model: 'chapter-selected-model' }));
   });
 });

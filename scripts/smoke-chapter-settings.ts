@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { JobRecord, Project } from '../src/shared/schema';
 
-// Deliberately uses the real Codex model, Microsoft speech, and MP4 renderer.
+// Deliberately uses the configured model, Microsoft speech, and MP4 renderer.
 const base = process.env.OPENTUTOR_BASE_URL || 'http://127.0.0.1:3330';
 const directory = '.data/verification';
 const auth: Record<string, string> = process.env.AUTH_TOKEN ? { Authorization: `Bearer ${process.env.AUTH_TOKEN}` } : {};
@@ -28,7 +28,7 @@ await mkdir(directory, { recursive: true });
 try {
   const catalog = await api<{ models: { id: string; isDefault: boolean }[] }>('/api/models');
   const model = catalog.models.find(item => item.isDefault)?.id || '';
-  assert(model, 'Real Codex catalog must provide a default model for this verification');
+  assert(model, 'The configured model catalog must provide a default model for this verification');
   project = (await api<{ project: Project }>('/api/projects', 'POST', { title: '[验证] 章节参数与创作组件', chapters: [
     { id: 'motion', title: '圆周运动', markdown: '物体沿圆周运动时，到圆心的距离始终等于半径。请用一幅持续运动的示意图直观解释，只讲这个概念，讲稿控制在两三句话。', settings: { model, creationMode: 'creative', theme: 'ink', resolution: '720p', voice: 'zh-CN-XiaoxiaoNeural', stylePrompt: '深海蓝背景（#071d32），青色动态图形，简洁科技课堂。请为圆周运动编写自定义动态组件。' } },
     { id: 'radius', title: '认识半径', markdown: '半径是圆心到圆周上任意一点的距离。只用一句话和简单预设组件讲解。', settings: { model, creationMode: 'stable', theme: 'sunset', resolution: '1080p', voice: 'zh-CN-YunxiNeural', stylePrompt: '暖纸色与陶橙，简洁清楚。' } },

@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import { cacheDirectory } from '../src/server/artifacts';
 import type { Asset, JobKind, JobRecord, Project } from '../src/shared/schema';
 
-// Real Codex + Microsoft Edge TTS + MP4 verification. No model or speech mocks.
+// Real configured model + Microsoft Edge TTS + MP4 verification. No model or speech mocks.
 const base = process.env.OPENTUTOR_BASE_URL || 'http://127.0.0.1:3330';
 const auth: Record<string, string> = process.env.AUTH_TOKEN ? { Authorization: `Bearer ${process.env.AUTH_TOKEN}` } : {};
 const directory = cacheDirectory('verification');

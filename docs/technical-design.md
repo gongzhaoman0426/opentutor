@@ -9,6 +9,13 @@
 
 工作台采用[章节内容编辑设计](./workbench-design.md)。主流程只有 `preview`（编排、配音、可播放预览）与 `export`（下载前编码）；底层 `compose`、`speech`、局部重生成等接口继续兼容。增量 `job.preview` 绑定输入版本，未完成真实配音的预览不能导出。
 
+## 模型接入与画面升级（v0.6，取代下文所有 Codex harness 描述）
+
+- **引擎**：`src/engine/llm.ts` 的 `modelJsonRunner` 实现原有 `JsonRunner` 接口，以 OpenAI 兼容 `/chat/completions`（SSE 流式）调用模型；`director.ts`（原 `codex.ts`）的编排、批处理、缓存与修复逻辑不变。模型只收到提示词与可选图片，不使用任何工具。
+- **供应商**：`llm_providers`（名称、类型、接口地址、加密 Key、选项）与 `llm_settings`（文本模型、可选图片理解模型、文本模型是否看图）两张表；Web 与 Worker 共用。Key 由 `OPENTUTOR_SECRET_KEY` 或 `.data/secret.key` 派生的主密钥以 AES-256-GCM 加密，不进入项目或任务快照，也不回传浏览器。
+- **能力差异**：结构化输出按 `json_schema → json_object → prompt` 降级并在进程内记忆；DeepSeek 按模型限制 `max_tokens`；GLM 图片使用原始 base64。`finish_reason=length` 与超时同样触发章节自动拆批。缓存指纹包含供应商类型、主机、模型、结构化模式与图片理解模型及提示词版本。
+- **画面**：`Scene.layout` 增加 `canvas`（仅创作模式，仅 custom 图层）；对象类型增加 `viz`（JSON 规格，`src/shared/viz.ts` 校验，`src/video/Viz.tsx` 用受信代码渲染）；沙箱在顶层注入 `CUSTOM_PRELUDE` 工具库，SVG 白名单扩展滤镜/蒙版/图案/use/textPath 且所有引用限定在本 SVG 内（use 不可嵌套、各图元数量封顶）；`LessonVideo` 增加转场、镜头推拉与逐字字幕。
+
 ## 通用视频表达（v0.5）
 
 - `Settings.videoIntent` 默认为 `auto`，预设 `explainer`、`product`、`briefing`、`story`；`creativeBrief` 为可选自由文本，表达预设之外的意图、语气、结构与节奏。新建项目受众默认为普通观众，已有受众保留。预设只提供编排方向，不限制内容类型。

@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowUpRight, BookOpen, ChevronRight, Feather, FolderOpen, Plus, Settings2, Sprout } from 'lucide-react';
+import { ChevronRight, Cpu, Feather, FolderOpen, Plus, Settings2, Sprout } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from './api';
+import { ModelSettingsDialog } from './ModelSettingsDialog';
 
 export function useModalFocus(onClose?: () => void, enabled = true) {
   const root = useRef<HTMLElement>(null);
@@ -29,6 +30,7 @@ export function useModalFocus(onClose?: () => void, enabled = true) {
 }
 
 export function StudioShell({ children, onCreate, editor = false, className = '' }: { children: React.ReactNode; onCreate?: () => void; editor?: boolean; className?: string }) {
+  const [models, setModels] = useState(false);
   return <div className={`studio-shell ${editor ? 'editor-shell' : ''} ${className}`}>
     <aside className="main-sidebar">
       <Link href="/" className="brand" aria-label="OpenTutor 首页"><span className="brand-icon"><Sprout size={25} strokeWidth={1.65} /></span><span>OpenTutor<span className="brand-subtitle">让想法成为视频</span></span></Link>
@@ -36,12 +38,13 @@ export function StudioShell({ children, onCreate, editor = false, className = ''
       <nav aria-label="主导航">
         <Link href="/" className="nav-item active"><FolderOpen size={18} />视频工作室<ChevronRight size={14} className="nav-chevron" /></Link>
         {onCreate && <button className="nav-item" onClick={onCreate}><Plus size={18} />创建新项目</button>}
-        <a href="https://github.com/openai/codex" target="_blank" rel="noreferrer" className="nav-item"><BookOpen size={18} />Codex 引擎<ArrowUpRight size={13} className="nav-chevron" /></a>
+        <button className="nav-item" onClick={() => setModels(true)}><Cpu size={18} />模型设置</button>
       </nav>
       <div className="sidebar-note"><Feather size={24} strokeWidth={1.2} /><p>你专注内容。<br />让我们把它讲清楚。</p><span>从一份文稿，开始一个视频。</span></div>
       <div className="sidebar-footer"><span className="engine-dot" />开源视频创作工作室<span className="sidebar-version">v0.1</span></div>
     </aside>
     <main className="workspace-main">{children}</main>
+    {models && <ModelSettingsDialog onClose={() => setModels(false)} />}
   </div>;
 }
 

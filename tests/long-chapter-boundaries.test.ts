@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { batchImageOccurrences, chunkSource, compileLesson } from '../src/engine/codex';
+import { batchImageOccurrences, chunkSource, compileLesson } from '../src/engine/director';
 import { defaultSettings, type Asset, type SourceBlock, type SourceDocument } from '../src/shared/schema';
 import { parseSource } from '../src/shared/source';
 

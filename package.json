@@ -20,7 +20,6 @@
   "dependencies": {
     "@jitl/quickjs-singlefile-browser-release-sync": "0.32.0",
     "@noble/hashes": "2.0.1",
-    "@openai/codex-sdk": "0.162.0",
     "@remotion/bundler": "4.0.534",
     "@remotion/player": "4.0.534",
     "@remotion/renderer": "4.0.534",

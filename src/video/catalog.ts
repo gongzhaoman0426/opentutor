@@ -1,5 +1,6 @@
 import type { Asset, Lesson, RenderPlan, Scene, TeachingObject } from '../shared/schema';
 import catalogImage from './catalog-image.json';
+import { CUSTOM_EXAMPLES } from '../shared/custom';
 
 export const waveComponentCode = `const cy = height / 2;
 const points = Array.from({length: 180}, (_, i) => {
@@ -52,6 +53,14 @@ export const componentCatalog: ComponentExample[] = [
   example('custom-wave', '动态波形', 'AI 代码按帧计算曲线与传播过程', 'content', [object('custom', waveComponentCode)], 'creative'),
   example('custom-orbit', '运动示意', 'AI 代码计算位置，呈现连续运动与关系', 'content', [object('custom', orbitComponentCode)], 'creative'),
   example('custom-bars', '动态数据图', 'AI 代码绘制图表，并控制数值与入场动画', 'content', [object('custom', barsComponentCode)], 'creative'),
+  example('viz-bar', '数据柱状图', '用程序渲染的动画柱状图比较数据，稳定模式可用', 'content', [object('viz', JSON.stringify({ kind: 'bar', title: '各季度订阅用户（千）', items: [{ label: 'Q1', value: 42 }, { label: 'Q2', value: 68 }, { label: 'Q3', value: 55 }, { label: 'Q4', value: 91, highlight: true }] }))]),
+  example('viz-line', '趋势折线图', '逐段绘制趋势线，适合时间序列与对比', 'content', [object('viz', JSON.stringify({ kind: 'line', title: '周活跃用户', labels: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'], series: [{ name: '新版', values: [12, 18, 26, 31, 44, 52, 61] }, { name: '旧版', values: [14, 16, 17, 19, 20, 22, 23] }] }))]),
+  example('viz-donut', '占比环形图', '展示构成与比例，图例随环形逐项出现', 'content', [object('viz', JSON.stringify({ kind: 'donut', title: '预算构成', unit: '万', items: [{ label: '研发', value: 46 }, { label: '市场', value: 28 }, { label: '运营', value: 18 }, { label: '其他', value: 8 }] }))]),
+  example('viz-stat', '关键数字', '大号数字滚动，突出核心结论', 'content', [object('viz', JSON.stringify({ kind: 'stat', items: [{ label: '活跃用户', value: 12800, suffix: '+', note: '较上月 +12%' }, { label: '留存率', value: 86.4, suffix: '%', decimals: 1 }, { label: '响应时间', value: 1.8, suffix: 's', decimals: 1, note: '提升 40%' }] }))]),
+  example('viz-timeline', '时间线', '节点沿时间轴依次点亮', 'content', [object('viz', JSON.stringify({ kind: 'timeline', title: '产品发展', items: [{ label: '2021', detail: '原型验证' }, { label: '2022', detail: '公开测试' }, { label: '2023', detail: '正式发布' }, { label: '2024', detail: '全球上线' }] }))]),
+  example('viz-flow', '流程图', '步骤逐个出现，并用箭头连接', 'diagram', [object('viz', JSON.stringify({ kind: 'flow', title: '从文稿到视频', items: [{ label: '导入文稿', detail: 'Markdown + 图片' }, { label: '模型编排', detail: '讲稿与分镜' }, { label: '微软配音', detail: '逐句对齐' }, { label: '导出 MP4', detail: '带字幕成片' }] }))]),
+  example('custom-showcase', '动态数据图（升级版）', '渐变、发光、错峰生长与数字计数', 'content', [object('custom', CUSTOM_EXAMPLES[0].code)], 'creative'),
+  example('canvas-hero', '全屏画面', '整屏铺开的氛围光斑、标题错峰入场与绘线强调', 'canvas', [object('custom', CUSTOM_EXAMPLES[1].code)], 'creative'),
 ];
 
 export function catalogLesson(example: ComponentExample): Lesson { return { schemaVersion: '0.1', title: example.title, objectives: [example.description], scenes: example.plan.scenes.map(item => item.scene) }; }

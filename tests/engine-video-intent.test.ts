@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
-import { compileLesson, regenerateScene, type JsonRunner } from '../src/engine/codex';
+import { compileLesson, regenerateScene, type JsonRunner } from '../src/engine/director';
 import { analyzeSourceImages } from '../src/engine/images';
 import { directorCacheKey } from '../src/engine/pipeline';
 import { defaultSettings, SettingsSchema, validateLesson, type Asset, type GenerationSettings, type JobRecord, type Lesson } from '../src/shared/schema';
